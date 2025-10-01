@@ -1,7 +1,6 @@
 #ifndef MAIN_H
 #define MAIN_H
 
-#include <autoconf.h>
 #include "platform_stdlib.h"
 
 #ifndef CONFIG_WLAN
@@ -43,7 +42,7 @@ extern void example_entry(void);
 
 #if ATCMD_VER == ATVER_2
 #undef CONFIG_EXAMPLE_WLAN_FAST_CONNECT
-#define CONFIG_EXAMPLE_WLAN_FAST_CONNECT	1
+#define CONFIG_EXAMPLE_WLAN_FAST_CONNECT	0
 
 extern unsigned char sta_ip[4], sta_netmask[4], sta_gw[4];
 extern unsigned char ap_ip[4], ap_netmask[4], ap_gw[4];

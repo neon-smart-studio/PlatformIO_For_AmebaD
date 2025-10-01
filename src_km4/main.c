@@ -2,6 +2,18 @@
 #include "ameba_soc.h"
 #include "main.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
+void vApplicationIdleHook(void) {
+    // Optional: 可以留空
+}
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
+    // 報錯處理，可加上斷言或死循環
+    for(;;);
+}
+
 #if defined(CONFIG_FTL_ENABLED)
 #include "ftl_int.h"
 extern const u8 ftl_phy_page_num;
