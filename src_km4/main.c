@@ -14,6 +14,12 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
     for(;;);
 }
 
+void vApplicationMallocFailedHook(void) {
+    /* 這裡可以放你想做的事情，例如 log、assert 或重啟 */
+    taskDISABLE_INTERRUPTS();
+    for (;;);  // 進入死迴圈，方便 debug
+}
+
 #if defined(CONFIG_FTL_ENABLED)
 #include "ftl_int.h"
 extern const u8 ftl_phy_page_num;
@@ -165,12 +171,12 @@ int main(void)
 	rtw_efuse_boot_write();
 
 	/* pre-processor of application example */
-	pre_example_entry();
+	//pre_example_entry();
 
 	wlan_network();
 	
 	/* Execute application example */
-	example_entry();
+	//example_entry();
 #endif
 
 #if defined(CONFIG_EQC) && CONFIG_EQC

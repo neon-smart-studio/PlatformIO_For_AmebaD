@@ -219,6 +219,12 @@ km4_src = [
     os.path.join(sdk_dir, "component/soc/realtek/amebad/fwlib/usrcfg/rtl8721d_wificfg.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/fwlib/usrcfg/rtl8721dhp_boot_trustzonecfg.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/fwlib/usrcfg/rtl8721dhp_intfcfg.c"),
+    
+    #os.path.join(sdk_dir, "component/soc/realtek/amebad/img3/boot_img3.c"),
+    #os.path.join(sdk_dir, "component/soc/realtek/amebad/img3/rtl8721dhp_crc.c"),
+    #os.path.join(sdk_dir, "component/soc/realtek/amebad/img3/secure_efuse.c"),
+    #os.path.join(sdk_dir, "component/soc/realtek/amebad/img3/secure_src.c"),
+
     #os.path.join(sdk_dir, "component/soc/realtek/amebad/misc/rtl8721d_ota.c"),
 
     os.path.join(sdk_dir, "component/os/freertos/cmsis_os.c"),
@@ -243,7 +249,7 @@ km4_src = [
 
     #os.path.join(sdk_dir, "component/common/api/wifi_interactive_mode.c"),
     os.path.join(sdk_dir, "component/common/api/lwip_netconf.c"),
-
+    
     os.path.join(sdk_dir, "component/common/api/at_cmd/log_service.c"),
     #os.path.join(sdk_dir, "component/common/api/at_cmd/atcmd_mp_ext0.c"),
     os.path.join(sdk_dir, "component/common/api/at_cmd/atcmd_wifi.c"),
@@ -256,6 +262,14 @@ km4_src = [
     os.path.join(sdk_dir, "component/common/api/wifi/wifi_util.c"),
 
     os.path.join(sdk_dir, "component/common/drivers/wlan/realtek/src/osdep/lwip_intf.c"),
+    
+    #os.path.join(sdk_dir, "component/common/api/network/src/ping_test.c"),
+    os.path.join(sdk_dir, "component/common/api/network/src/ttcp.c"),
+    os.path.join(sdk_dir, "component/common/api/network/src/wlan_network.c"),
+
+    os.path.join(sdk_dir, "component/common/network/ssl/ssl_ram_map/ssl_ram_map.c"),
+    os.path.join(sdk_dir, "component/common/network/ssl/ssl_ram_map/rom/rom_ssl_ram_map.c"),
+    os.path.join(sdk_dir, "component/common/network/ssl/ssl_wrapper/ssl_wrapper.c"),
 
     os.path.join(sdk_dir, "component/common/network/dhcp/dhcps.c"),
 
@@ -439,8 +453,8 @@ km4_src = [
     os.path.join(sdk_dir, "component/common/network/ssl/mbedtls-2.4.0/library/x509write_crt.c"),
     os.path.join(sdk_dir, "component/common/network/ssl/mbedtls-2.4.0/library/x509write_csr.c"),
     os.path.join(sdk_dir, "component/common/network/ssl/mbedtls-2.4.0/library/xtea.c"),
-    os.path.join(sdk_dir, "component/common/network/ssl/mbedtls-2.4.0/library_s/mbedtls_ext_nsc.c"),
-    os.path.join(sdk_dir, "component/common/network/ssl/mbedtls-2.4.0/library_s/mbedtls_nsc.c"),
+    #os.path.join(sdk_dir, "component/common/network/ssl/mbedtls-2.4.0/library_s/mbedtls_ext_nsc.c"),
+    #os.path.join(sdk_dir, "component/common/network/ssl/mbedtls-2.4.0/library_s/mbedtls_nsc.c"),
 ] 
 
 km4_inc = [
@@ -564,6 +578,7 @@ with open(km0_ld_build, "w") as out:
         out.write("\n")
 
 print(f">>> Generated merged KM0 ld: {km0_ld_build}")
+
 # === Prepare KM4 linker script ===
 km4_ld_build = os.path.join(asdk_km4_dir, "build", "rlx8721d.ld")
 if not os.path.exists(os.path.dirname(km4_ld_build)):
