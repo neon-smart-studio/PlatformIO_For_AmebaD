@@ -1,0 +1,19 @@
+{
+  "build": {
+    "core": "amebad",
+    "cpu": "cortex-m4",
+    "f_cpu": "200000000L",
+    "mcu": "rtl8720dn",
+    "variant": "rtl8720dn"
+  },
+  "frameworks": ["amebad-rtos"],
+  "name": "Realtek RTL8720DN",
+  "url": "https://www.amebaiot.com/en/amebad/",
+  "vendor": "Realtek",
+  "upload": {
+    "maximum_ram_size": 524288,
+    "maximum_size": 2097152,
+    "protocol": "custom",
+    "require_upload_port": true
+  }
+}

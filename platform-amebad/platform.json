@@ -1,0 +1,26 @@
+{
+  "name": "amebad",
+  "title": "Realtek AmebaD Platform",
+  "version": "0.1.0",
+  "description": "Unofficial PlatformIO support for Realtek RTL8720DN (AmebaD)",
+  "homepage": "https://github.com/Ameba-AIoT/ameba-rtos-d",
+
+  "frameworks": {
+    "amebad-rtos": {
+      "script": "builder/main.py",
+      "description": "Realtek AmebaD FreeRTOS + SDK"
+    }
+  },
+
+  "packages": {
+    "toolchain-gccarmnoneeabi": {
+      "type": "toolchain",
+      "owner": "platformio",
+      "version": "^1.100301.0"
+    }
+  },
+
+  "boards": {
+    "rtl8720dn": "boards/rtl8720dn.json"
+  }
+}
