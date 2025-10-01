@@ -1048,8 +1048,44 @@ def upload_amebad(source, target, env):
     _run(f"\"{tool_exe}\" {port} {km0} {km4}")
     print(">>> Upload done!") 
 
-# 讓 pio run -t buildprog 會把兩顆 KM0 image 做出來（你原本的行為）
-Alias("buildprog", [km0_boot_bin, km0_all_bin, km4_boot_bin, km4_all_bin])
+def merge_km0_km4_image2():
+    """
+    依 Realtek Makefile 規則合併：
+    km4_image2_all.bin (xip->ram->psram, 已 prepend+pad) +
+    km0_image2_all.bin (xip->ram, 已 prepend+pad)
+    -> km0_km4_image2.bin
+    """
+    print(">>> Merging KM0+KM4 image2 ...")
+    image_out = build_dir
+    km4_all = os.path.join(image_out, "km4_image2_all.bin")
+    km0_all = os.path.join(image_out, "km0_image2_all.bin")
+    out_bin = os.path.join(image_out, "km0_km4_image2.bin")
+
+    if not os.path.exists(km4_all):
+        raise FileNotFoundError("km4_image2_all.bin not found")
+    if not os.path.exists(km0_all):
+        raise FileNotFoundError("km0_image2_all.bin not found")
+
+    # 注意順序：KM4 在前，KM0 在後（對齊後再併）
+    _concat_bins(out_bin, km4_all, km0_all)
+    _pad_to_4k(out_bin)
+
+    print(">>> Merged:", out_bin)
+    return out_bin
+
+def _merge_km0_km4_image2_action(target, source, env):
+    merge_km0_km4_image2()
+    return 0
+
+# 讓 SCons 以現有兩顆 all.bin 為輸入做出合併檔
+km0_km4_image2_bin = env.Command(
+    os.path.join(build_dir, "km0_km4_image2.bin"),
+    [km0_all_bin, km4_all_bin],
+    _merge_km0_km4_image2_action
+)
+
+# 想要一鍵一起生出來：把它掛到 buildprog
+Alias("buildprog", [km0_km4_image2_bin])
 
 # 🚩 Upload target (只負責上傳，不會在 build 時觸發)
 upload_target = env.Alias("upload", None, upload_amebad)
