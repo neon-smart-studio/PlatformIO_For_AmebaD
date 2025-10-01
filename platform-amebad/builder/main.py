@@ -80,7 +80,7 @@ km0_src = [
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/low_level_io.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/monitor_lp.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/rtl_trace.c"),
-    os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/shell_ram.c"),
+    #os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/shell_ram.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/rom/monitor_rom.c"),
 
     os.path.join(sdk_dir, "component/soc/realtek/amebad/fwlib/ram_common/rtl8721d_adc.c"),
@@ -164,7 +164,7 @@ km4_src = [
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/low_level_io.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/monitor_hp.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/rtl_trace.c"),
-    os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/shell_ram.c"),
+    #os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/ram/shell_ram.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/rom/monitor_rom.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/monitor/rom/shell_rom.c"),
     os.path.join(sdk_dir, "component/soc/realtek/amebad/app/touch_key/touch_key.c"),
@@ -250,10 +250,6 @@ km4_src = [
     #os.path.join(sdk_dir, "component/common/api/wifi_interactive_mode.c"),
     os.path.join(sdk_dir, "component/common/api/lwip_netconf.c"),
     
-    os.path.join(sdk_dir, "component/common/api/at_cmd/log_service.c"),
-    #os.path.join(sdk_dir, "component/common/api/at_cmd/atcmd_mp_ext0.c"),
-    os.path.join(sdk_dir, "component/common/api/at_cmd/atcmd_wifi.c"),
-    
     os.path.join(sdk_dir, "component/common/api/wifi/rtw_wpa_supplicant/wpa_supplicant/wifi_eap_config.c"),
     os.path.join(sdk_dir, "component/common/api/wifi/wifi_conf.c"),
     os.path.join(sdk_dir, "component/common/api/wifi/wifi_ind.c"),
@@ -272,6 +268,8 @@ km4_src = [
     os.path.join(sdk_dir, "component/common/network/ssl/ssl_wrapper/ssl_wrapper.c"),
 
     os.path.join(sdk_dir, "component/common/network/dhcp/dhcps.c"),
+
+    os.path.join(sdk_dir, "component/common/example/cm_backtrace/example_cm_backtrace.c"),
 
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/br_rpt_handle.c"),
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/bridgeif_fdb.c"),
@@ -676,6 +674,7 @@ env_km4.Append(CCFLAGS=[
 ])
 compat_header = os.path.join(proj_include_km4, "compat_sys_types.h").replace("\\","/")
 env_km4.Append(CCFLAGS=[f"-include{compat_header}"])
+env_km4.Append(CCFLAGS=[f"-DosThreadId_t=TaskHandle_t"])
 env_km4.Append(CPPPATH=[proj_include])
 env_km4.Append(CPPPATH=[proj_include_km4])
 env_km4.Append(CPPPATH=km4_inc, CPPDEFINES=env.get("CPPDEFINES", []))
