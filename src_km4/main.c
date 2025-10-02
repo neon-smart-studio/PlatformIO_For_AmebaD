@@ -150,6 +150,9 @@ int main(void)
 #endif
 
 	/* init console */
+	shell_recv_all_data_onetime = 1;
+	shell_init_rom(0, 0);	
+	shell_init_ram();
 	ipc_table_init();
 
 	/* Register Log Uart Callback function */
@@ -175,7 +178,6 @@ int main(void)
 	/* Execute application example */
 	//example_entry();
 #endif
-	printf("\n\r Call main() done \n\r");
 
 #if defined(CONFIG_EQC) && CONFIG_EQC
 	//EQC_test_entry();

@@ -3,6 +3,8 @@ from SCons.Script import DefaultEnvironment, AlwaysBuild, Alias
 import glob
 import subprocess
 import re
+import struct
+import shutil
 
 env = DefaultEnvironment() # SDK 與 Toolchain 路徑
 
@@ -35,6 +37,8 @@ ld = os.path.join(toolchain, "bin", "arm-none-eabi-ld")
 objcopy = os.path.join(toolchain, "bin", "arm-none-eabi-objcopy")
 fromelf = os.path.join(toolchain, "bin", "arm-none-eabi-objcopy")
 strip = os.path.join(toolchain, "bin", "arm-none-eabi-strip")
+objdump = os.path.join(toolchain, "bin", "arm-none-eabi-objdump")
+nm = os.path.join(toolchain, "bin", "arm-none-eabi-nm")
 
 utility_km0_dir = os.path.join(asdk_km0_dir, "gnu_utility")
 utility_km4_dir = os.path.join(asdk_km4_dir, "gnu_utility")
@@ -556,65 +560,15 @@ proj_include = os.path.join(env.subst("$PROJECT_DIR"), "include")
 proj_include_km0 = os.path.join(env.subst("$PROJECT_DIR"), "include_km0")
 proj_include_km4 = os.path.join(env.subst("$PROJECT_DIR"), "include_km4")
 
-# === Prepare KM0 linker script ===
-km0_ld_build = os.path.join(asdk_km0_dir, "build", "rlx8721d.ld")
-if not os.path.exists(os.path.dirname(km0_ld_build)):
-    os.makedirs(os.path.dirname(km0_ld_build))
-
-# 重新產生 build/rlx8721d.ld
-with open(km0_ld_build, "w") as out:
-    # append rom_symbol_acut.ld
-    rom_sym = os.path.join(asdk_km0_dir, "ld", "rlx8721d_rom_symbol_acut.ld")
-    with open(rom_sym, "r") as f:
-        out.write(f.read())
-        out.write("\n")
-
-    # append img2.ld
-    img2_ld = os.path.join(asdk_km0_dir, "ld", "rlx8721d_img2.ld")
-    with open(img2_ld, "r") as f:
-        out.write(f.read())
-        out.write("\n")
-
-print(f">>> Generated merged KM0 ld: {km0_ld_build}")
-
-# === Prepare KM4 linker script ===
-km4_ld_build = os.path.join(asdk_km4_dir, "build", "rlx8721d.ld")
-if not os.path.exists(os.path.dirname(km4_ld_build)):
-    os.makedirs(os.path.dirname(km4_ld_build))
-
-with open(km4_ld_build, "w") as out:
-    # append rom_symbol_acut.ld
-    rom_sym = os.path.join(asdk_km4_dir, "ld", "rlx8721d_rom_symbol_acut.ld")
-    with open(rom_sym, "r") as f:
-        out.write(f.read())
-        out.write("\n")
-
-    if USE_TZ:
-        # append img2_ns.ld （非安全）
-        img2_ts = os.path.join(asdk_km4_dir, "ld", "rlx8721d_img2_tz.ld")
-        with open(img2_ts, "r") as f:
-            out.write(f.read())
-            out.write("\n")
-    else:
-        # append img2_ns.ld （非安全）
-        img2_ns = os.path.join(asdk_km4_dir, "ld", "rlx8721d_img2_is.ld")
-        with open(img2_ns, "r") as f:
-            out.write(f.read())
-            out.write("\n")
-
-print(f">>> Generated merged KM4 ld: {km4_ld_build}")
-
 # Build KM0
 env_km0 = env.Clone()
 set_xtools(env_km0)
 apply_ini_build_flags(env_km0)
 env_km0.Append(CCFLAGS=[
     "-mcpu=cortex-m0", "-mthumb",
-    "-Os", "-ffunction-sections", "-fdata-sections",
-    "-fno-common", "-fmessage-length=0",
-    "-fno-exceptions", "-fomit-frame-pointer",
-    "-Wall", "-Wpointer-arith", "-Wno-strict-aliasing",
-    "-Wno-unused-function", "-Wno-unused-variable",
+    "-Os", "-fno-common", "-fmessage-length=0",
+    "-Wall", "-Wpointer-arith", "-Wstrict-prototypes",
+    "-Wundef", "-Wno-unused-function", "-Wno-unused-variable",
     "-Wno-int-conversion"
 ])
 env_km0.Append(CPPPATH=[proj_include])
@@ -634,7 +588,6 @@ boot_km0_elf = env_km0.Program(
         "-L" + asdk_km0_dir,
         "-T" + os.path.join(asdk_km0_dir, "ld/rlx8721d_boot.ld"),
         "-T" + os.path.join(asdk_km0_dir, "ld/rlx8721d_rom_symbol_acut.ld"),
-        "-nostartfiles", "-nostdlib", "-nodefaultlibs",
         "-Wl,--gc-sections", "-Wl,--warn-section-align",
         "-Wl,-Map=" + os.path.join(build_dir, "km0_boot.map"),
     ]
@@ -650,7 +603,8 @@ km0_elf = env_km0.Program(
     LINKFLAGS=[
         "-mcpu=cortex-m0", "-mthumb",
         "-L" + asdk_km0_dir,
-        "-T" + km0_ld_build,
+        "-T" + os.path.join(asdk_km0_dir, "ld/rlx8721d_img2.ld"),
+        "-T" + os.path.join(asdk_km0_dir, "ld/rlx8721d_rom_symbol_acut.ld"),
         "-nostartfiles", "--specs=nosys.specs",
         "-Wl,--gc-sections", "-Wl,--warn-section-align",
         "-Wl,-Map=" + os.path.join(build_dir, "target_km0_img2.map"),
@@ -695,21 +649,40 @@ boot_km4_elf = env_km4.Program(
 km4_objs = _mk_objs(env_km4, km4_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
 km4_proj_src = collect_sources(project_km4_dir)
 km4_proj_objs = _mk_objs(env_km4, km4_proj_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
-km4_ns_elf = env_km4.Program(
-    target=os.path.join(env.subst("$BUILD_DIR"), "amebad/km4.elf"),
-    source=km4_objs + km4_proj_objs,
-    LIBPATH=[os.path.join(asdk_km4_dir, "lib/application")],
-    LIBS=extra_libs_km4,
-    LINKFLAGS=[
-        "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard",
-        "-L" + asdk_km4_dir,
-        "-T" + km4_ld_build,
-        "-nostartfiles", "--specs=nosys.specs",
-        "-Wl,--gc-sections", "-Wl,--warn-section-align",
-        "-Wl,-Map=" + os.path.join(build_dir, "target_km4_img2.map"),
-        "-Wl,--cref", "-Wl,--no-enum-size-warning",
-    ]
-)
+if USE_TZ:
+    km4_elf = env_km4.Program(
+        target=os.path.join(env.subst("$BUILD_DIR"), "amebad/km4.elf"),
+        source=km4_objs + km4_proj_objs,
+        LIBPATH=[os.path.join(asdk_km4_dir, "lib/application")],
+        LIBS=extra_libs_km4,
+        LINKFLAGS=[
+            "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard",
+            "-L" + asdk_km4_dir,
+            "-T" + os.path.join(asdk_km4_dir, "ld", "rlx8721d_rom_symbol_acut.ld"),
+            "-T" + os.path.join(asdk_km4_dir, "ld", "rlx8721d_img2_tz.ld"),
+            "-nostartfiles", "--specs=nosys.specs",
+            "-Wl,--gc-sections", "-Wl,--warn-section-align",
+            "-Wl,-Map=" + os.path.join(build_dir, "target_km4_img2.map"),
+            "-Wl,--cref", "-Wl,--no-enum-size-warning",
+        ]
+    )
+else:
+    km4_elf = env_km4.Program(
+        target=os.path.join(env.subst("$BUILD_DIR"), "amebad/km4.elf"),
+        source=km4_objs + km4_proj_objs,
+        LIBPATH=[os.path.join(asdk_km4_dir, "lib/application")],
+        LIBS=extra_libs_km4,
+        LINKFLAGS=[
+            "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard",
+            "-L" + asdk_km4_dir,
+            "-T" + os.path.join(asdk_km4_dir, "ld", "rlx8721d_rom_symbol_acut.ld"),
+            "-T" + os.path.join(asdk_km4_dir, "ld", "rlx8721d_img2_is.ld"),
+            "-nostartfiles", "--specs=nosys.specs",
+            "-Wl,--gc-sections", "-Wl,--warn-section-align",
+            "-Wl,-Map=" + os.path.join(build_dir, "target_km4_img2.map"),
+            "-Wl,--cref", "-Wl,--no-enum-size-warning",
+        ]
+    )
 
 def _run(cmd, strict=True):
     import subprocess, shlex
@@ -786,74 +759,56 @@ def _find_symbol_addr_from_map(map_path: str, *symbols, fallback_elf: str | None
 
     raise RuntimeError(f"symbol {symbols} not found in {map_path}")
 
-def _prepend_header(in_bin: str, map_path: str, symbols, out_bin: str | None = None):
-    """
-    boot 類影像：雙 magic (BE)
-    image2 類影像：ASCII "81958711" + size(LE) + load_addr(LE) + 16B 0xFF
-    失敗時會自動回退用 ELF section 取得位址。
-    """
-    import os, struct, shutil
-    from collections.abc import Sequence
+# 1) 新增：從 map 找 section 起始位址的輔助函式
+def _find_section_addr_from_map(map_path: str, *sections: str):
+    import re
+    with open(map_path, "r", encoding="utf-8", errors="ignore") as f:
+        for ln in f:
+            for sec in sections:
+                m = re.search(rf"\s{re.escape(sec)}\s+0x([0-9A-Fa-f]+)", ln)
+                if m:
+                    return int(m.group(1), 16)
+    return None
 
-    # ---- 常量 ----
-    PATTERN_1 = 0x96969999
-    PATTERN_2 = 0xFC66CC3F
-    IMG2SIGN  = b"81958711"
-    RSVD16    = b"\xFF" * 16
-
-    # ---- 正規化輸入 ----
-    if isinstance(symbols, (str, bytes)):
-        sym_list = [symbols.decode() if isinstance(symbols, bytes) else symbols]
-    elif isinstance(symbols, Sequence):
-        sym_list = list(symbols)
-    else:
-        raise TypeError("symbols must be str or sequence of str")
-
-    if out_bin is None:
-        root, ext = os.path.splitext(in_bin)
-        out_bin = f"{root}_prepend{ext}"
-
-    # ---- 根據 map 名稱猜對應的純淨 ELF （用於 fallback）----
-    base_map = os.path.basename(map_path)
-    img_dir  = os.path.dirname(map_path)
-    guess_elf = None
-    if   base_map == "km0_boot.map":          guess_elf = os.path.join(img_dir, "target_pure_loader.axf")
-    elif base_map == "km4_boot.map":          guess_elf = os.path.join(img_dir, "target_pure_boot_km4.axf")
-    elif base_map == "target_km0_img2.map":   guess_elf = os.path.join(img_dir, "target_km0_pure_img2.axf")
-    elif base_map == "target_km4_img2.map":   guess_elf = os.path.join(img_dir, "target_pure_img2.axf")
-    elif base_map == "target_img3.map":       guess_elf = os.path.join(img_dir, "target_pure_img3.axf")
-
-    # ---- 根據輸出檔名猜 section 名稱（ELF fallback 用）----
-    sec_guess = []
-    n = os.path.basename(in_bin)
-    if n.endswith("ram_1.bin") or n.endswith("km4_ram_1.bin"):            sec_guess = [".ram_image1.text"]
-    elif n.endswith("xip_boot.bin") or n.endswith("km4_xip_boot.bin"):     sec_guess = [".xip_image1.text"]
-    elif "ram_2" in n:                                                     sec_guess = [".ram_image2.text"]
-    elif "xip_image2" in n:                                                sec_guess = [".xip_image2.text"]
-    elif "psram_2" in n:                                                   sec_guess = [".psram_image2.text"]
-    elif n.startswith("ram_3_s"):                                          sec_guess = [".ram_image3.text"]
-    elif n.startswith("ram_3_nsc"):                                        sec_guess = [".gnu.sgstubs"]
-    elif n.startswith("psram_3_s"):                                        sec_guess = [".psram_image3.text"]
-
-    # ---- 真正取位址（先 map 符號 → 再 ELF/section）----
-    addr = _find_symbol_addr_from_map(
-        map_path, *sym_list,
-        fallback_elf=guess_elf,
-        fallback_sections=sec_guess
-    )
+# 2) 修改：支援 BOOT/IMG2，且可帶 fallback_addr 與 section_hints
+def _prepend_header(in_bin, map_path, symbols, out_bin, kind,
+                    fallback_addr=None, section_hints=None, align=None):
+    # 先用符號找
+    addr = None
+    try:
+        addr = _find_symbol_addr_from_map(map_path, *symbols) if symbols else None
+    except Exception:
+        addr = None
+    # 找不到就用 section 名稱找（例如 .xip_image1.text）
+    if addr is None and section_hints:
+        addr = _find_section_addr_from_map(map_path, *section_hints)
+    # 還是找不到就用 fallback
+    if addr is None and fallback_addr is not None:
+        addr = fallback_addr
+    if addr is None:
+        raise RuntimeError(f"cannot determine load address for {kind} header: {in_bin}")
 
     size = os.path.getsize(in_bin)
-    name = os.path.basename(in_bin)
-
-    # boot 影像要雙 magic
-    is_boot = name.endswith("ram_1.bin") or name.endswith("xip_boot.bin")
-    magic = (struct.pack(">L", PATTERN_1) + struct.pack(">L", PATTERN_2)) if is_boot else IMG2SIGN
-    header = magic + struct.pack("<L", size) + struct.pack("<L", addr) + RSVD16
+    pad = 0
+    if align:
+        size_aligned = (size + (align - 1)) & ~(align - 1)
+        pad = size_aligned - size
+    else:
+        size_aligned = size
 
     with open(out_bin, "wb") as w, open(in_bin, "rb") as r:
-        w.write(header)
-        shutil.copyfileobj(r, w)
+        if kind.upper() == "BOOT":
+            w.write(struct.pack("<II", 0x96969999, 0xFC66CC3F))
+        elif kind.upper() == "IMG2":
+            w.write(b"81958711")
+        else:
+            raise ValueError("Unknown header kind")
 
+        w.write(struct.pack("<II", size_aligned, addr))
+        w.write(b"\xFF" * 16)
+        shutil.copyfileobj(r, w)
+        if pad:
+            w.write(b"\xFF" * pad)
 
 def _pad_to_4k(path: str):
     import os
@@ -922,18 +877,42 @@ def postprocess_km0_boot():
     xip1_bin  = os.path.join(image_out, "xip_boot.bin")
 
     _run([strip, "-o", pure_axf, elf])
-    # 擷取 boot 段
-    _run([objcopy, "-j", ".ram_image1.entry", "-j", ".ram_image1.text", "-j", ".ram_image1.data",
-          "-Obinary", pure_axf, ram1_bin])
-    _run([objcopy, "-j", ".xip_image1.text",
-          "-Obinary", pure_axf, xip1_bin])
+    
+    # KM0 RAM Boot
+    _run([objcopy,
+        "-j", ".ram_image1.entry",
+        "-j", ".ram_image1.text",
+        "-j", ".ram_image1.data",
+        "-j", ".ram_image1.rodata",
+        "-Obinary", pure_axf, ram1_bin])
+
+    # KM0 XIP Boot
+    _run([objcopy,
+        "-j", ".xip_image1.text",
+        "-j", ".xip_image1.data",
+        "-j", ".xip_image1.rodata",
+        "-j", ".rodata.str1.1",
+        "-Obinary", pure_axf, xip1_bin])
 
     # prepend header（符號同原 Makefile）
     ram1_pre = os.path.join(image_out, "ram_1_prepend.bin")
     xip1_pre = os.path.join(image_out, "xip_boot_prepend.bin")
-    _prepend_header(ram1_bin, map_path, "__ram_start_table_start__", ram1_pre)
-    _prepend_header(xip1_bin, map_path, "__flash_boot_text_start__", xip1_pre)
+    _prepend_header(
+        ram1_bin, map_path,
+        ["__ram_start_table_start__", "ram_start_table_start__"],
+        ram1_pre, "BOOT",
+        section_hints=[".ram_image1.entry"]  # 找不到符號就用 section
+    )
 
+    # KM0 BOOT：XIP（關鍵！fallback 指到 0x08000020）
+    _prepend_header(
+        xip1_bin, map_path,
+        ["__flash_boot_text_start__", "flash_boot_text_start__"],
+        xip1_pre, "BOOT",
+        fallback_addr=0x08000020,
+        section_hints=[".xip_image1.text"],
+        align=32,                     # ★ 這行
+    )
     # 合併 + 4KB 對齊
     km0_boot_all = os.path.join(image_out, "km0_boot_all.bin")
     _concat_bins(km0_boot_all, xip1_pre, ram1_pre)
@@ -955,7 +934,6 @@ def postprocess_km0_boot():
     print(">>> KM0 boot done:", km0_boot_all)
     return km0_boot_all
 
-# === KM0 image2 後處理（等同 Makefile linker_image2 段）===
 def postprocess_km0_image2():
     print(">>> Post-processing KM0 image2 ...")
     elf = os.path.join(build_dir, "km0.elf")
@@ -965,30 +943,36 @@ def postprocess_km0_image2():
     image_out = build_dir
     map_path  = os.path.join(image_out, "target_km0_img2.map")
     pure_axf  = os.path.join(image_out, "target_km0_pure_img2.axf")
+
     ram2_bin  = os.path.join(image_out, "km0_ram_2.bin")
     xip2_bin  = os.path.join(image_out, "km0_xip_image2.bin")
-    ret_bin   = os.path.join(image_out, "km0_ram_retention.bin")  # 有就切，沒有就算了
+    ret_bin   = os.path.join(image_out, "km0_ram_retention.bin")
 
     _run([strip, "-o", pure_axf, elf])
-    # 擷取 image2 段
-    _run([objcopy, "-j", ".ram_image2.entry", "-j", ".ram_image2.text", "-j", ".ram_image2.data",
+
+    _run([objcopy,
+          "-j", ".ram_image2.entry",
+          "-j", ".ram_image2.text",
+          "-j", ".ram_image2.data",
+          "-j", ".ram_image2.rodata",
           "-Obinary", pure_axf, ram2_bin])
-    _run([objcopy, "-j", ".xip_image2.text",
-          "-Obinary", pure_axf, xip2_bin])
-    # retention 可選
-    _run([objcopy, "-j", ".ram_retention.text", "-j", ".ram_retention.entry",
-          "-Obinary", pure_axf, ret_bin], strict=False)
 
-    # prepend
+    _run([objcopy, "-j", ".xip_image2.text", "-Obinary", pure_axf, xip2_bin], strict=False)
+    _run([objcopy, "-j", ".ram_retention.text", "-j", ".ram_retention.entry", "-Obinary", pure_axf, ret_bin], strict=False)
+
     ram2_pre = os.path.join(image_out, "km0_ram_2_prepend.bin")
-    xip2_pre = os.path.join(image_out, "km0_xip_image2_prepend.bin")
-    _prepend_header(ram2_bin, map_path, "__ram_image2_text_start__", ram2_pre)
-    _prepend_header(xip2_bin, map_path, "__flash_text_start__",      xip2_pre)
-    if os.path.exists(ret_bin) and os.path.getsize(ret_bin) > 0:
-        ret_pre = os.path.join(image_out, "km0_ram_retention_prepend.bin")
-        _prepend_header(ret_bin, map_path, "__retention_entry_func__", ret_pre)
+    _prepend_header(ram2_bin, map_path,
+                    ["__ram_image2_entry_func__", "__image2_entry_func__"],
+                    ram2_pre, "IMG2")
 
-    # 合併（依原廠 km0 只併 xip+ram；retention 獨立）
+    xip2_pre = None
+    if os.path.exists(xip2_bin) and os.path.getsize(xip2_bin) > 0:
+        xip2_pre = os.path.join(image_out, "km0_xip_image2_prepend.bin")
+        _prepend_header(xip2_bin, map_path,
+                        ["__flash_text_start__", "flash_text_start__"],
+                        xip2_pre, "IMG2",
+                        section_hints=[".xip_image2.text"])
+
     km0_all = os.path.join(image_out, "km0_image2_all.bin")
     _concat_bins(km0_all, xip2_pre, ram2_pre)
     _pad_to_4k(km0_all)
@@ -997,11 +981,6 @@ def postprocess_km0_image2():
     return km0_all
 
 def postprocess_km4_boot():
-    """
-    依照 Realtek 的 linker_loader 流程，從 boot_km4.elf 萃出
-    .ram_image1.{entry,text,data} 與 .xip_image1.text，前置 header 後合併成 km4_boot_all.bin
-    並視情況呼叫 imagetool.sh（Makefile 同樣有做）。
-    """
     print(">>> Post-processing KM4 boot ...")
 
     elf = os.path.join(build_dir, "boot_km4.elf")
@@ -1015,75 +994,43 @@ def postprocess_km4_boot():
     ram1_bin  = os.path.join(image_out, "km4_ram_1.bin")
     xip1_bin  = os.path.join(image_out, "km4_xip_boot.bin")
 
-    # strip -> 產出純淨 axf
     _run([strip, "-o", pure_axf, elf])
 
-    # 擷取 boot 段：RAM image1 與 XIP image1（和 Makefile 相同 section）
+    # RAM
     _run([objcopy,
-          "-j", ".ram_image1.entry", "-j", ".ram_image1.text", "-j", ".ram_image1.data",
+          "-j", ".ram_image1.entry",
+          "-j", ".ram_image1.text",
+          "-j", ".ram_image1.data",
+        "-j", ".ram_image1.rodata",
           "-Obinary", pure_axf, ram1_bin])
 
-    # XIP 有些配置可能不存在，失敗不致命
+    # XIP
     _run([objcopy,
           "-j", ".xip_image1.text",
+          "-j", ".xip_image1.data",
+          "-j", ".xip_image1.rodata",
+          "-j", ".rodata.str1.1",
           "-Obinary", pure_axf, xip1_bin], strict=False)
 
-    # 依 map 取符號地址，前置 header（容忍兩種命名）
     ram1_pre = os.path.join(image_out, "km4_ram_1_prepend.bin")
     xip1_pre = os.path.join(image_out, "km4_xip_boot_prepend.bin")
 
     _prepend_header(ram1_bin, map_path,
                     ["__ram_start_table_start__", "ram_start_table_start__"],
-                    ram1_pre)
+                    ram1_pre, "BOOT")
 
-    # xip1_bin 可能不存在或為空；存在才前置/合併
-    xip_exists = os.path.exists(xip1_bin) and os.path.getsize(xip1_bin) > 0
-    if xip_exists:
+    if os.path.exists(xip1_bin) and os.path.getsize(xip1_bin) > 0:
         _prepend_header(xip1_bin, map_path,
                         ["__flash_boot_text_start__", "flash_boot_text_start__"],
-                        xip1_pre)
+                        xip1_pre, "BOOT")
 
-    # 合併順序：XIP -> RAM（Makefile 如此）
     km4_boot_all = os.path.join(image_out, "km4_boot_all.bin")
-    if xip_exists:
+    if os.path.exists(xip1_pre):
         _concat_bins(km4_boot_all, xip1_pre, ram1_pre)
     else:
         _concat_bins(km4_boot_all, ram1_pre)
 
-    # 4KB 對齊（與工具鏈 pad.sh 行為一致）
     _pad_to_4k(km4_boot_all)
-
-    # 套用 sboot/rsip 到 km4_boot_all.bin（純 Python）
-    try:
-        imgdir  = os.path.join(asdk_km4_dir, "gnu_utility", "image_tool")
-        enctool = os.path.join(imgdir, "EncTool.exe" if os.name == "nt" else "EncTool")
-        if os.path.exists(enctool):
-            # 讀 security_config.sh + 允許環境變數覆蓋
-            cfg = {"SBOOT_ENABLE":"0","RSIP_ENABLE":"0","SBOOT_SEED":"", "RSIP_KEY":"","RSIP_IV":""}
-            sc = os.path.normpath(os.path.join(imgdir, "../../../../security_config.sh"))
-            if os.path.exists(sc):
-                with open(sc, "r", encoding="utf-8", errors="ignore") as fh:
-                    for line in fh:
-                        m = re.match(r'\s*([A-Za-z0-9_]+)\s*=\s*("?)([^"#]+)\2', line)
-                        if m and m.group(1) in cfg:
-                            cfg[m.group(1)] = m.group(3).strip()
-            for k in cfg:  # env override
-                if k in os.environ:
-                    cfg[k] = os.environ[k]
-            def _b(x): return "1" if str(x).strip().lower() in ("1","true","y","yes") else "0"
-            cfg["SBOOT_ENABLE"] = _b(cfg["SBOOT_ENABLE"])
-            cfg["RSIP_ENABLE"]  = _b(cfg["RSIP_ENABLE"])
-
-            img_sb = os.path.join(image_out, "km4_boot_all-sb.bin")
-            img_en = os.path.join(image_out, "km4_boot_all-en.bin")
-            if cfg["SBOOT_ENABLE"] == "1":
-                _run([enctool, "sboot", km4_boot_all, img_sb, os.path.join(imgdir,"key_pair.txt"), cfg["SBOOT_SEED"], "1"])
-                os.replace(img_sb, km4_boot_all)
-            if cfg["RSIP_ENABLE"] == "1":
-                _run([enctool, "rsip",  km4_boot_all, img_en, "0x08004000", cfg["RSIP_KEY"], cfg["RSIP_IV"]])
-                os.replace(img_en, km4_boot_all)
-    except Exception as e:
-        print(">>> imagetool step (boot) skipped:", e)
 
     print(">>> KM4 boot done:", km4_boot_all)
     return km4_boot_all
@@ -1097,7 +1044,6 @@ def postprocess_km4_image2_ns():
         raise FileNotFoundError("km4.elf not found")
 
     image_out = build_dir
-    # 原本寫 target_img2.map → 改成 target_km4_img2.map
     map_path  = os.path.join(image_out, "target_km4_img2.map")
     pure_axf  = os.path.join(image_out, "target_pure_img2.axf")
 
@@ -1107,33 +1053,49 @@ def postprocess_km4_image2_ns():
 
     _run([strip, "-o", pure_axf, elf])
 
-    # 擷取三段（和 Makefile 一致）
-    _run([objcopy, "-j", ".ram_image2.entry", "-j", ".ram_image2.text", "-j", ".ram_image2.data",
+    # RAM
+    _run([objcopy,
+          "-j", ".ram_image2.entry",
+          "-j", ".ram_image2.text",
+          "-j", ".ram_image2.data",
+          "-j", ".ram_image2.rodata",
           "-Obinary", pure_axf, ram2_bin])
-    _run([objcopy, "-j", ".xip_image2.text",
-          "-Obinary", pure_axf, xip2_bin], strict=False)
-    _run([objcopy, "-j", ".psram_image2.text", "-j", ".psram_image2.data",
-          "-Obinary", pure_axf, psram_bin], strict=False)  # 有些配置可能沒有 PSRAM
 
-    # prepend（容忍不同符號命名）
+    # XIP
+    _run([objcopy,
+          "-j", ".xip_image2.text",
+          "-j", ".xip_image2.data",
+          "-j", ".xip_image2.rodata",
+          "-j", ".rodata.str1.1",
+          "-Obinary", pure_axf, xip2_bin], strict=False)
+
+    # PSRAM
+    _run([objcopy,
+          "-j", ".psram_image2.text",
+          "-j", ".psram_image2.data",
+          "-j", ".psram_image2.rodata",
+          "-Obinary", pure_axf, psram_bin], strict=False)
+
     ram2_pre  = os.path.join(image_out, "ram_2_prepend.bin")
     xip2_pre  = os.path.join(image_out, "xip_image2_prepend.bin")
     psram_pre = os.path.join(image_out, "psram_2_prepend.bin")
 
-    _prepend_header(ram2_bin,  map_path, ["__ram_image2_text_start__", "ram_image2_text_start__"],  ram2_pre)
-     # 只有在 XIP 檔案真的存在且非空時才前置 header/併入
-    xip_exists = os.path.exists(xip2_bin) and os.path.getsize(xip2_bin) > 0
-    if xip_exists:
-        _prepend_header(xip2_bin,  map_path, ["__flash_text_start__", "flash_text_start__"], xip2_pre)
-    else:
-        xip2_pre = None
+    _prepend_header(ram2_bin,  map_path,
+                    ["__ram_image2_text_start__", "ram_image2_text_start__"],
+                    ram2_pre, "IMG2")
 
-    if os.path.exists(psram_bin):
-        _prepend_header(psram_bin, map_path, ["__psram_image2_text_start__", "psram_image2_text_start__"], psram_pre)
-    else:
-        psram_pre = None
+    if os.path.exists(xip2_bin) and os.path.getsize(xip2_bin) > 0:
+        _prepend_header(xip2_bin, map_path,
+                        ["__flash_text_start__", "flash_text_start__"],
+                        xip2_pre, "IMG2")
 
-    # 合併順序：xip → ram → psram（Makefile 如此）
+    psram_pre = None
+    if os.path.exists(psram_bin) and os.path.getsize(psram_bin) > 0:
+        psram_pre = os.path.join(image_out, "psram_2_prepend.bin")
+        _prepend_header(psram_bin, map_path,
+                        ["__psram_image2_text_start__", "psram_image2_text_start__"],
+                        psram_pre, "IMG2")
+
     km4_all = os.path.join(image_out, "km4_image2_all.bin")
     _concat_bins(km4_all, xip2_pre, ram2_pre, psram_pre)
     _pad_to_4k(km4_all)
@@ -1145,37 +1107,54 @@ def postprocess_km4_image2_ns():
 def postprocess_km4_image3_s():
     print(">>> Post-processing KM4 image3 (secure) ...")
 
-    elf = os.path.join(build_dir, "km4_img3.elf")   # 如果你把 image3 也編成不同 elf；否則照 km4.elf
+    elf = os.path.join(build_dir, "km4_img3.elf")
     if not os.path.exists(elf):
-        print("skip image3: no elf")
+        print(">>> skip image3: no elf")
         return None
 
     image_out = build_dir
     map_path  = os.path.join(image_out, "target_img3.map")
     pure_axf  = os.path.join(image_out, "target_pure_img3.axf")
 
-    ram3s_bin  = os.path.join(image_out, "ram_3_s.bin")
-    ram3nsc_bin= os.path.join(image_out, "ram_3_nsc.bin")
-    psram3s_bin= os.path.join(image_out, "psram_3_s.bin")
+    ram3s_bin   = os.path.join(image_out, "ram_3_s.bin")
+    ram3nsc_bin = os.path.join(image_out, "ram_3_nsc.bin")
+    psram3s_bin = os.path.join(image_out, "psram_3_s.bin")
 
     _run([strip, "-o", pure_axf, elf])
-    _run([objcopy, "-j", ".ram_image3.text", "-j", ".ram_image3.data",
+
+    # Secure RAM
+    _run([objcopy,
+          "-j", ".ram_image3.text",
+          "-j", ".ram_image3.data",
           "-Obinary", pure_axf, ram3s_bin])
-    _run([objcopy, "-j", ".gnu.sgstubs",
+
+    # Non-secure callable stubs
+    _run([objcopy,
+          "-j", ".gnu.sgstubs",
           "-Obinary", pure_axf, ram3nsc_bin])
-    _run([objcopy, "-j", ".psram_image3.text", "-j", ".psram_image3.data",
+
+    # Secure PSRAM
+    _run([objcopy,
+          "-j", ".psram_image3.text",
+          "-j", ".psram_image3.data",
           "-Obinary", pure_axf, psram3s_bin], strict=False)
 
     ram3s_pre   = os.path.join(image_out, "ram_3_s_prepend.bin")
     ram3nsc_pre = os.path.join(image_out, "ram_3_nsc_prepend.bin")
     psram3s_pre = os.path.join(image_out, "psram_3_s_prepend.bin")
 
-    _prepend_header(ram3s_bin,   map_path, ["__ram_image3_text_start__", "ram_image3_text_start__"],   ram3s_pre)
-    _prepend_header(ram3nsc_bin, map_path, ["__ram_image3_nsc_start__",  "ram_image3_nsc_start__"],    ram3nsc_pre)
-    if os.path.exists(psram3s_bin):
-        _prepend_header(psram3s_bin, map_path, ["__psram_image3_text_start__", "psram_image3_text_start__"], psram3s_pre)
-    else:
-        psram3s_pre = None
+    _prepend_header(ram3s_bin,   map_path,
+                    ["__ram_image3_text_start__", "ram_image3_text_start__"],
+                    ram3s_pre, "IMG3")
+
+    _prepend_header(ram3nsc_bin, map_path,
+                    ["__ram_image3_nsc_start__", "ram_image3_nsc_start__"],
+                    ram3nsc_pre, "IMG3")
+
+    if os.path.exists(psram3s_bin) and os.path.getsize(psram3s_bin) > 0:
+        _prepend_header(psram3s_bin, map_path,
+                        ["__psram_image3_text_start__", "psram_image3_text_start__"],
+                        psram3s_pre, "IMG3")
 
     km4_img3_all   = os.path.join(image_out, "km4_image3_all.bin")
     km4_img3_psram = os.path.join(image_out, "km4_image3_psram.bin")
@@ -1183,11 +1162,11 @@ def postprocess_km4_image3_s():
     _concat_bins(km4_img3_all, ram3s_pre, ram3nsc_pre)
     _pad_to_4k(km4_img3_all)
 
-    if psram3s_pre:
+    if os.path.exists(psram3s_pre):
         _concat_bins(km4_img3_psram, psram3s_pre)
         _pad_to_4k(km4_img3_psram)
 
-    print(">>> KM4 image3 done:", km4_img3_all, "(psram:", bool(psram3s_pre), ")")
+    print(">>> KM4 image3 done:", km4_img3_all)
     return km4_img3_all
 
 # === 綁定到 SCons target（用 ELF 當輸入觸發） ===
@@ -1211,7 +1190,7 @@ km0_boot_bin = env.Command(os.path.join(build_dir, "km0_boot_all.bin"), boot_km0
 km0_all_bin  = env.Command(os.path.join(build_dir, "km0_image2_all.bin"), km0_elf,  _post_km0_action)
 
 km4_boot_bin = env.Command(os.path.join(build_dir, "km4_boot_all.bin"), boot_km4_elf, _post_km4_boot_action)
-km4_all_bin = env.Command(os.path.join(build_dir, "km4_image2_all.bin"), km4_ns_elf, _post_km4_image2_ns_action)
+km4_all_bin = env.Command(os.path.join(build_dir, "km4_image2_all.bin"), km4_elf, _post_km4_image2_ns_action)
 
 def _imagetool_image2_action(target, source, env):
     """
