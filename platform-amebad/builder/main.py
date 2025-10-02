@@ -275,7 +275,6 @@ km4_src = [
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/br_rpt_handle.c"),
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/bridgeif_fdb.c"),
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/bridgeif.c"),
-    os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/bridgeif.c"),
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/ethernetif.c"),
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/port/realtek/freertos/sys_arch.c"),
     os.path.join(sdk_dir, "component/common/network/lwip/lwip_v2.0.2/src/api/api_lib.c"),
@@ -728,51 +727,81 @@ def _run(cmd, strict=True):
         raise RuntimeError(f"Command failed: {printable}")
     return r.returncode
 
-def _find_symbol_addr_from_map(map_path: str, *symbols: str) -> int:
-    """在 map 中以多個候選符號名尋址，匹配含 0x 的各種格式。"""
-    import re
+def _find_symbol_addr_from_map(map_path: str, *symbols, fallback_elf: str | None = None, fallback_sections: list[str] | None = None) -> int:
+    import re, subprocess, os
+    # --- 先從 map 尋找（原本兩種嚴格樣式）---
     with open(map_path, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
-    # 先過濾包含任一候選符號的行，再從該行抓第一個 0xHEX
     for sym in symbols:
+        pat = re.compile(rf"^\s*{re.escape(sym)}\s*=\s*0x([0-9A-Fa-f]+)\s*$")
         for ln in lines:
-            if sym in ln:
-                m = re.search(r"0x([0-9A-Fa-f]+)", ln)
-                if m:
-                    return int(m.group(1), 16)
+            m = pat.match(ln)
+            if m:
+                return int(m.group(1), 16)
 
-    # 退而求其次：處理 "symbol = 0x...." 放前面的行
-    import re
     for sym in symbols:
-        pat = re.compile(re.escape(sym) + r"\s*=\s*0x([0-9A-Fa-f]+)")
+        pat = re.compile(rf"^\s*0x([0-9A-Fa-f]+)\s+{re.escape(sym)}\s*$")
+        for ln in lines:
+            m = pat.match(ln)
+            if m:
+                return int(m.group(1), 16)
+
+    # --- 放寬的 map 掃描（同一行有其他欄位也接受）---
+    for sym in symbols:
+        pat = re.compile(rf"0x([0-9A-Fa-f]+)\s+.*\b{re.escape(sym)}\b")
         for ln in lines:
             m = pat.search(ln)
             if m:
                 return int(m.group(1), 16)
 
+    # --- 從 ELF 的 section 表抓 VMA 當載入位址 ---
+    if fallback_elf and fallback_sections:
+        try:
+            r = subprocess.run([objdump, "-h", fallback_elf], capture_output=True, text=True)
+            out = r.stdout
+            # objdump -h 的格式大致是：
+            # [Nr] Name              Size      VMA       LMA       File off  Algn
+            #  12 .ram_image2.text   0000....  20200000  20200000  0000....  2**...
+            for sec in fallback_sections:
+                pat = re.compile(rf"^\s*\d+\s+{re.escape(sec)}\s+[0-9A-Fa-f]+\s+([0-9A-Fa-f]+)\s+", re.M)
+                m = pat.search(out)
+                if m:
+                    return int(m.group(1), 16)
+        except Exception:
+            pass
+
+    # --- 最後用 nm 直接找符號 ---
+    if fallback_elf and symbols:
+        try:
+            r = subprocess.run([nm, "-n", fallback_elf], capture_output=True, text=True)
+            for ln in r.stdout.splitlines():
+                parts = ln.strip().split()
+                if len(parts) >= 3:
+                    addr_hex, _, name = parts[0], parts[1], parts[2]
+                    if name in symbols:
+                        return int(addr_hex, 16)
+        except Exception:
+            pass
+
     raise RuntimeError(f"symbol {symbols} not found in {map_path}")
 
 def _prepend_header(in_bin: str, map_path: str, symbols, out_bin: str | None = None):
     """
-    依 Realtek 規格 prepend header：
-      - 若檔名以 ram_1.bin 或 xip_boot.bin 結尾（含 km4_ram_1.bin / km4_xip_boot.bin 等）：
-          header_magic = 0x99999696 (BE 4B) + 0x3FCC66FC (BE 4B)
-        否則：
-          header_magic = b"81958711" (ASCII 8B)
-      - 後接：image size (LE 4B) + image addr (LE 4B)
-      - 保留：0xFF * 16
-    `symbols` 可為字串或序列。
+    boot 類影像：雙 magic (BE)
+    image2 類影像：ASCII "81958711" + size(LE) + load_addr(LE) + 16B 0xFF
+    失敗時會自動回退用 ELF section 取得位址。
     """
     import os, struct, shutil
     from collections.abc import Sequence
 
-    PATTERN_1 = 0x99999696
-    PATTERN_2 = 0x3FCC66FC
+    # ---- 常量 ----
+    PATTERN_1 = 0x96969999
+    PATTERN_2 = 0xFC66CC3F
     IMG2SIGN  = b"81958711"
     RSVD16    = b"\xFF" * 16
 
-    # 正規化 symbols
+    # ---- 正規化輸入 ----
     if isinstance(symbols, (str, bytes)):
         sym_list = [symbols.decode() if isinstance(symbols, bytes) else symbols]
     elif isinstance(symbols, Sequence):
@@ -784,23 +813,47 @@ def _prepend_header(in_bin: str, map_path: str, symbols, out_bin: str | None = N
         root, ext = os.path.splitext(in_bin)
         out_bin = f"{root}_prepend{ext}"
 
-    addr = _find_symbol_addr_from_map(map_path, *sym_list)
+    # ---- 根據 map 名稱猜對應的純淨 ELF （用於 fallback）----
+    base_map = os.path.basename(map_path)
+    img_dir  = os.path.dirname(map_path)
+    guess_elf = None
+    if   base_map == "km0_boot.map":          guess_elf = os.path.join(img_dir, "target_pure_loader.axf")
+    elif base_map == "km4_boot.map":          guess_elf = os.path.join(img_dir, "target_pure_boot_km4.axf")
+    elif base_map == "target_km0_img2.map":   guess_elf = os.path.join(img_dir, "target_km0_pure_img2.axf")
+    elif base_map == "target_km4_img2.map":   guess_elf = os.path.join(img_dir, "target_pure_img2.axf")
+    elif base_map == "target_img3.map":       guess_elf = os.path.join(img_dir, "target_pure_img3.axf")
+
+    # ---- 根據輸出檔名猜 section 名稱（ELF fallback 用）----
+    sec_guess = []
+    n = os.path.basename(in_bin)
+    if n.endswith("ram_1.bin") or n.endswith("km4_ram_1.bin"):            sec_guess = [".ram_image1.text"]
+    elif n.endswith("xip_boot.bin") or n.endswith("km4_xip_boot.bin"):     sec_guess = [".xip_image1.text"]
+    elif "ram_2" in n:                                                     sec_guess = [".ram_image2.text"]
+    elif "xip_image2" in n:                                                sec_guess = [".xip_image2.text"]
+    elif "psram_2" in n:                                                   sec_guess = [".psram_image2.text"]
+    elif n.startswith("ram_3_s"):                                          sec_guess = [".ram_image3.text"]
+    elif n.startswith("ram_3_nsc"):                                        sec_guess = [".gnu.sgstubs"]
+    elif n.startswith("psram_3_s"):                                        sec_guess = [".psram_image3.text"]
+
+    # ---- 真正取位址（先 map 符號 → 再 ELF/section）----
+    addr = _find_symbol_addr_from_map(
+        map_path, *sym_list,
+        fallback_elf=guess_elf,
+        fallback_sections=sec_guess
+    )
+
     size = os.path.getsize(in_bin)
     name = os.path.basename(in_bin)
 
-    # boot 影像（含 km4_*）也要雙 magic
+    # boot 影像要雙 magic
     is_boot = name.endswith("ram_1.bin") or name.endswith("xip_boot.bin")
-
-    if is_boot:
-        magic = struct.pack(">L", PATTERN_1) + struct.pack(">L", PATTERN_2)
-    else:
-        magic = IMG2SIGN
-
+    magic = (struct.pack(">L", PATTERN_1) + struct.pack(">L", PATTERN_2)) if is_boot else IMG2SIGN
     header = magic + struct.pack("<L", size) + struct.pack("<L", addr) + RSVD16
 
     with open(out_bin, "wb") as w, open(in_bin, "rb") as r:
         w.write(header)
         shutil.copyfileobj(r, w)
+
 
 def _pad_to_4k(path: str):
     import os
@@ -931,7 +984,7 @@ def postprocess_km0_image2():
     xip2_pre = os.path.join(image_out, "km0_xip_image2_prepend.bin")
     _prepend_header(ram2_bin, map_path, "__ram_image2_text_start__", ram2_pre)
     _prepend_header(xip2_bin, map_path, "__flash_text_start__",      xip2_pre)
-    if os.path.exists(ret_bin):
+    if os.path.exists(ret_bin) and os.path.getsize(ret_bin) > 0:
         ret_pre = os.path.join(image_out, "km0_ram_retention_prepend.bin")
         _prepend_header(ret_bin, map_path, "__retention_entry_func__", ret_pre)
 
