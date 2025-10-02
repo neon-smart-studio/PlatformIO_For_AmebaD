@@ -175,6 +175,7 @@ int main(void)
 	/* Execute application example */
 	//example_entry();
 #endif
+	printf("\n\r Call main() done \n\r");
 
 #if defined(CONFIG_EQC) && CONFIG_EQC
 	//EQC_test_entry();

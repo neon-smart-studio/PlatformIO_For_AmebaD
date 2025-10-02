@@ -2,6 +2,7 @@ import os
 from SCons.Script import DefaultEnvironment, AlwaysBuild, Alias
 import glob
 import subprocess
+import re
 
 env = DefaultEnvironment() # SDK 與 Toolchain 路徑
 
@@ -21,8 +22,8 @@ USE_TZ = int(env.GetProjectOption("trustzone") or
              ("TRUSTZONE" in (env.get("CPPDEFINES") or []) and "1") or
              0)
 
-project_km0_dir = os.path.join(sdk_dir, env.subst("$PROJECT_DIR"), "src_km0")
-project_km4_dir = os.path.join(sdk_dir, env.subst("$PROJECT_DIR"), "src_km4")
+project_km0_dir = os.path.join(env.subst("$PROJECT_DIR"), "src_km0")
+project_km4_dir = os.path.join(env.subst("$PROJECT_DIR"), "src_km4")
 
 asdk_km0_dir = os.path.join(sdk_dir, "project/realtek_amebaD_va0_example/GCC-RELEASE/project_lp/asdk")
 asdk_km4_dir = os.path.join(sdk_dir, "project/realtek_amebaD_va0_example/GCC-RELEASE/project_hp/asdk")
@@ -663,7 +664,7 @@ env_km4 = env.Clone()
 set_xtools(env_km4)
 apply_ini_build_flags(env_km4)
 env_km4.Append(CCFLAGS=[
-    "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard",
+    "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard",
     "-Os", "-ffunction-sections", "-fdata-sections",
     "-fno-common", "-fmessage-length=0",
     "-fno-exceptions", "-fomit-frame-pointer",
@@ -673,7 +674,7 @@ env_km4.Append(CCFLAGS=[
     "-Wno-incompatible-pointer-types"
 ])
 compat_header = os.path.join(proj_include_km4, "compat_sys_types.h").replace("\\","/")
-env_km4.Append(CCFLAGS=[f"-include{compat_header}"])
+env_km4.Append(CCFLAGS=["-include", compat_header])
 env_km4.Append(CCFLAGS=[f"-DosThreadId_t=TaskHandle_t"])
 env_km4.Append(CPPPATH=[proj_include])
 env_km4.Append(CPPPATH=[proj_include_km4])
@@ -683,7 +684,7 @@ boot_km4_elf = env_km4.Program(
     target=os.path.join(env.subst("$BUILD_DIR"), "amebad/boot_km4.elf"),
     source=boot_km4_objs,
     LINKFLAGS=[
-        "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard",
+        "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard",
         "-L" + asdk_km4_dir,
         "-T" + os.path.join(asdk_km4_dir, "ld/secureboot/rlx8721d_img1_s_sboot.ld"),
         "-T" + os.path.join(asdk_km4_dir, "ld/rlx8721d_rom_symbol_acut_boot.ld"),
@@ -701,7 +702,7 @@ km4_ns_elf = env_km4.Program(
     LIBPATH=[os.path.join(asdk_km4_dir, "lib/application")],
     LIBS=extra_libs_km4,
     LINKFLAGS=[
-        "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard",
+        "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard",
         "-L" + asdk_km4_dir,
         "-T" + km4_ld_build,
         "-nostartfiles", "--specs=nosys.specs",
@@ -711,13 +712,20 @@ km4_ns_elf = env_km4.Program(
     ]
 )
 
-def _run(cmd:list, strict=True):
-    print(">>>", " ".join(cmd))
-    r = subprocess.run(cmd, capture_output=True, text=True)
+def _run(cmd, strict=True):
+    import subprocess, shlex
+    # 支援 list 或字串
+    if isinstance(cmd, str):
+        printable = cmd
+        r = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+    else:
+        printable = " ".join(cmd)
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    print(">>>", printable)
     if r.stdout: print(r.stdout)
     if r.stderr: print(r.stderr)
     if strict and r.returncode != 0:
-        raise RuntimeError(f"Command failed: {' '.join(cmd)}")
+        raise RuntimeError(f"Command failed: {printable}")
     return r.returncode
 
 def _find_symbol_addr_from_map(map_path: str, *symbols: str) -> int:
@@ -745,15 +753,64 @@ def _find_symbol_addr_from_map(map_path: str, *symbols: str) -> int:
 
     raise RuntimeError(f"symbol {symbols} not found in {map_path}")
 
-def _prepend_header(in_bin: str, map_path: str, symbols: list[str], out_bin: str):
-    """按 Realtek 格式加 header：magic 81958711 + sizeLE + addrLE + 16B 0xFF。"""
-    import struct, shutil, os
-    addr = _find_symbol_addr_from_map(map_path, *symbols)
+def _prepend_header(in_bin: str, map_path: str, symbols, out_bin: str | None = None):
+    """
+    依 Realtek 規格 prepend header：
+      - 若檔名以 ram_1.bin 或 xip_boot.bin 結尾（含 km4_ram_1.bin / km4_xip_boot.bin 等）：
+          header_magic = 0x99999696 (BE 4B) + 0x3FCC66FC (BE 4B)
+        否則：
+          header_magic = b"81958711" (ASCII 8B)
+      - 後接：image size (LE 4B) + image addr (LE 4B)
+      - 保留：0xFF * 16
+    `symbols` 可為字串或序列。
+    """
+    import os, struct, shutil
+    from collections.abc import Sequence
+
+    PATTERN_1 = 0x99999696
+    PATTERN_2 = 0x3FCC66FC
+    IMG2SIGN  = b"81958711"
+    RSVD16    = b"\xFF" * 16
+
+    # 正規化 symbols
+    if isinstance(symbols, (str, bytes)):
+        sym_list = [symbols.decode() if isinstance(symbols, bytes) else symbols]
+    elif isinstance(symbols, Sequence):
+        sym_list = list(symbols)
+    else:
+        raise TypeError("symbols must be str or sequence of str")
+
+    if out_bin is None:
+        root, ext = os.path.splitext(in_bin)
+        out_bin = f"{root}_prepend{ext}"
+
+    addr = _find_symbol_addr_from_map(map_path, *sym_list)
     size = os.path.getsize(in_bin)
-    header = b'81958711' + struct.pack('<L', size) + struct.pack('<L', addr) + (b'\xFF' * 16)
+    name = os.path.basename(in_bin)
+
+    # boot 影像（含 km4_*）也要雙 magic
+    is_boot = name.endswith("ram_1.bin") or name.endswith("xip_boot.bin")
+
+    if is_boot:
+        magic = struct.pack(">L", PATTERN_1) + struct.pack(">L", PATTERN_2)
+    else:
+        magic = IMG2SIGN
+
+    header = magic + struct.pack("<L", size) + struct.pack("<L", addr) + RSVD16
+
     with open(out_bin, "wb") as w, open(in_bin, "rb") as r:
         w.write(header)
         shutil.copyfileobj(r, w)
+
+def _pad_to_4k(path: str):
+    import os
+    sz = os.stat(path).st_size
+    newsize = (((sz - 1) >> 12) + 1) << 12 if sz else 0
+    pad = newsize - sz
+    if pad > 0:
+        with open(path, "ab", buffering=0) as f:
+            for _ in range(pad):
+                f.write(b"\xFF")
 
 def _concat_bins(out_path:str, *parts:str):
     with open(out_path, "wb") as w:
@@ -763,13 +820,40 @@ def _concat_bins(out_path:str, *parts:str):
             with open(p, "rb") as r:
                 w.write(r.read())
 
-def _pad_to_4k(path:str):
-    import os
-    sz = os.path.getsize(path)
-    pad = ((sz + 4095) // 4096) * 4096 - sz
-    if pad:
-        with open(path, "ab") as f:
-            f.write(b"\xFF" * pad)
+def _load_security_cfg(imgdir):
+    """
+    來源優先序：
+    1) 環境變數（RSIP_ENABLE, RSIP_KEY, RSIP_IV, SBOOT_ENABLE, SBOOT_SEED, RDP_ENABLE, RDP_KEY, SIMG2_ENABLE）
+    2) security_config.sh（可能在 sdk/security_config.sh，或以 imagetool.sh 的相對路徑回推）
+    """
+    cfg = {
+        "RSIP_ENABLE": "0", "SBOOT_ENABLE": "0", "RDP_ENABLE": "0", "SIMG2_ENABLE": "0",
+        "RSIP_KEY": "", "RSIP_IV": "", "SBOOT_SEED": "", "RDP_KEY": ""
+    }
+    # 先吃環境變數
+    for k in list(cfg.keys()):
+        if k in os.environ:
+            cfg[k] = os.environ[k]
+
+    # 再找 security_config.sh
+    candidates = [
+        os.path.join(sdk_dir, "security_config.sh"),
+        os.path.normpath(os.path.join(imgdir, "../../../../security_config.sh")),
+    ]
+    for f in candidates:
+        if os.path.exists(f):
+            with open(f, "r", encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    m = re.match(r'\s*([A-Za-z0-9_]+)\s*=\s*("?)([^"#]+)\2', line)
+                    if m and m.group(1) in cfg:
+                        cfg[m.group(1)] = m.group(3).strip()
+            break
+
+    # 正規化開關
+    def _b(x): return "1" if str(x).strip().lower() in ("1", "true", "y", "yes") else "0"
+    for k in ("RSIP_ENABLE","SBOOT_ENABLE","RDP_ENABLE","SIMG2_ENABLE"):
+        cfg[k] = _b(cfg[k])
+    return cfg
 
 # === KM0 boot 後處理（等同 Makefile linker_loader 段）===
 def postprocess_km0_boot():
@@ -801,6 +885,19 @@ def postprocess_km0_boot():
     km0_boot_all = os.path.join(image_out, "km0_boot_all.bin")
     _concat_bins(km0_boot_all, xip1_pre, ram1_pre)
     _pad_to_4k(km0_boot_all)
+
+    # 建議：把這段抽成共用 _load_security_cfg(imgdir)（你在 _imagetool_image2_action 裡已寫過一次）
+    try:
+        imgdir  = os.path.join(asdk_km4_dir, "gnu_utility", "image_tool")
+        enctool = os.path.join(imgdir, "EncTool.exe" if os.name == "nt" else "EncTool")
+        if os.path.exists(enctool):
+            cfg = _load_security_cfg(imgdir)  # 共用的讀取 security_config.sh + env 的函式
+            if cfg["RSIP_ENABLE"] == "1":
+                img_en = os.path.join(image_out, "km0_boot_all-en.bin")
+                _run([enctool, "rsip", km0_boot_all, img_en, "0x08000000", cfg["RSIP_KEY"], cfg["RSIP_IV"]])
+                os.replace(img_en, km0_boot_all)
+    except Exception as e:
+        print(">>> imagetool step (KM0 boot) skipped:", e)
 
     print(">>> KM0 boot done:", km0_boot_all)
     return km0_boot_all
@@ -903,10 +1000,37 @@ def postprocess_km4_boot():
     # 4KB 對齊（與工具鏈 pad.sh 行為一致）
     _pad_to_4k(km4_boot_all)
 
-    # 可選：依 Makefile 習慣呼叫 imagetool.sh（單參數版本）
-    imagetool = os.path.join(sdk_dir, "utility", "image_tool", "imagetool.sh")
-    if os.path.exists(imagetool):
-        _run(["bash", imagetool, km4_boot_all], strict=False)
+    # 套用 sboot/rsip 到 km4_boot_all.bin（純 Python）
+    try:
+        imgdir  = os.path.join(asdk_km4_dir, "gnu_utility", "image_tool")
+        enctool = os.path.join(imgdir, "EncTool.exe" if os.name == "nt" else "EncTool")
+        if os.path.exists(enctool):
+            # 讀 security_config.sh + 允許環境變數覆蓋
+            cfg = {"SBOOT_ENABLE":"0","RSIP_ENABLE":"0","SBOOT_SEED":"", "RSIP_KEY":"","RSIP_IV":""}
+            sc = os.path.normpath(os.path.join(imgdir, "../../../../security_config.sh"))
+            if os.path.exists(sc):
+                with open(sc, "r", encoding="utf-8", errors="ignore") as fh:
+                    for line in fh:
+                        m = re.match(r'\s*([A-Za-z0-9_]+)\s*=\s*("?)([^"#]+)\2', line)
+                        if m and m.group(1) in cfg:
+                            cfg[m.group(1)] = m.group(3).strip()
+            for k in cfg:  # env override
+                if k in os.environ:
+                    cfg[k] = os.environ[k]
+            def _b(x): return "1" if str(x).strip().lower() in ("1","true","y","yes") else "0"
+            cfg["SBOOT_ENABLE"] = _b(cfg["SBOOT_ENABLE"])
+            cfg["RSIP_ENABLE"]  = _b(cfg["RSIP_ENABLE"])
+
+            img_sb = os.path.join(image_out, "km4_boot_all-sb.bin")
+            img_en = os.path.join(image_out, "km4_boot_all-en.bin")
+            if cfg["SBOOT_ENABLE"] == "1":
+                _run([enctool, "sboot", km4_boot_all, img_sb, os.path.join(imgdir,"key_pair.txt"), cfg["SBOOT_SEED"], "1"])
+                os.replace(img_sb, km4_boot_all)
+            if cfg["RSIP_ENABLE"] == "1":
+                _run([enctool, "rsip",  km4_boot_all, img_en, "0x08004000", cfg["RSIP_KEY"], cfg["RSIP_IV"]])
+                os.replace(img_en, km4_boot_all)
+    except Exception as e:
+        print(">>> imagetool step (boot) skipped:", e)
 
     print(">>> KM4 boot done:", km4_boot_all)
     return km4_boot_all
@@ -934,7 +1058,7 @@ def postprocess_km4_image2_ns():
     _run([objcopy, "-j", ".ram_image2.entry", "-j", ".ram_image2.text", "-j", ".ram_image2.data",
           "-Obinary", pure_axf, ram2_bin])
     _run([objcopy, "-j", ".xip_image2.text",
-          "-Obinary", pure_axf, xip2_bin])
+          "-Obinary", pure_axf, xip2_bin], strict=False)
     _run([objcopy, "-j", ".psram_image2.text", "-j", ".psram_image2.data",
           "-Obinary", pure_axf, psram_bin], strict=False)  # 有些配置可能沒有 PSRAM
 
@@ -944,7 +1068,13 @@ def postprocess_km4_image2_ns():
     psram_pre = os.path.join(image_out, "psram_2_prepend.bin")
 
     _prepend_header(ram2_bin,  map_path, ["__ram_image2_text_start__", "ram_image2_text_start__"],  ram2_pre)
-    _prepend_header(xip2_bin,  map_path, ["__flash_text_start__",      "flash_text_start__"],       xip2_pre)
+     # 只有在 XIP 檔案真的存在且非空時才前置 header/併入
+    xip_exists = os.path.exists(xip2_bin) and os.path.getsize(xip2_bin) > 0
+    if xip_exists:
+        _prepend_header(xip2_bin,  map_path, ["__flash_text_start__", "flash_text_start__"], xip2_pre)
+    else:
+        xip2_pre = None
+
     if os.path.exists(psram_bin):
         _prepend_header(psram_bin, map_path, ["__psram_image2_text_start__", "psram_image2_text_start__"], psram_pre)
     else:
@@ -1030,12 +1160,201 @@ km0_all_bin  = env.Command(os.path.join(build_dir, "km0_image2_all.bin"), km0_el
 km4_boot_bin = env.Command(os.path.join(build_dir, "km4_boot_all.bin"), boot_km4_elf, _post_km4_boot_action)
 km4_all_bin = env.Command(os.path.join(build_dir, "km4_image2_all.bin"), km4_ns_elf, _post_km4_image2_ns_action)
 
-def run_imagetool_for_image2():
-    imagetool = os.path.join(sdk_dir, "utility", "image_tool", "imagetool.sh")
-    km4_all   = os.path.join(build_dir, "km4_image2_all.bin")
-    km0_imgdir= os.path.join(build_dir)   # 你已有 km0_builddir 變數的話
-    if os.path.exists(imagetool) and os.path.exists(km4_all):
-        _run(["bash", imagetool, km4_all, km0_imgdir, os.environ.get("BUILD_TYPE","NONE")], strict=False)
+def _imagetool_image2_action(target, source, env):
+    """
+    Python 版 imagetool：移植自 sdk 的 gnu_utility/image_tool/imagetool.sh
+    - 會根據檔名執行 sboot/rsip/rdp
+    - 4KB 對齊
+    - 依原腳本順序合併 km0/km4 image2，並視 RDP/BUILD_TYPE 併入 image3
+    - 不依賴 bash，支援 Windows / Linux / macOS
+    """
+    import os, re, shutil, platform
+
+    image_out = build_dir
+    km4_all   = os.path.join(image_out, "km4_image2_all.bin")
+    km0_all   = os.path.join(image_out, "km0_image2_all.bin")
+    copy_path = image_out  # 你目前就放同資料夾
+    build_type = os.environ.get("BUILD_TYPE", "NONE")
+
+    # ---- helpers ----
+    def _find_imgtool_dir():
+        candidates = [
+            os.path.join(asdk_km4_dir, "gnu_utility", "image_tool"),
+            os.path.join(sdk_dir,       "utility",    "image_tool"),
+        ]
+        for d in candidates:
+            if os.path.isdir(d):
+                return d
+        raise FileNotFoundError("image_tool folder not found under:\n  " +
+                                "\n  ".join(candidates))
+
+    def _enctool_path(imgdir):
+        exe = os.path.join(imgdir, "EncTool.exe" if os.name == "nt" else "EncTool")
+        if not os.path.exists(exe):
+            raise FileNotFoundError("EncTool not found at: " + exe)
+        if os.name != "nt":
+            try: os.chmod(exe, 0o755)
+            except Exception: pass
+        return exe
+
+    def _mv(src, dst):
+        if os.path.exists(src):
+            os.replace(src, dst)
+
+    def _cp(src, dst):
+        if os.path.exists(src):
+            shutil.copy2(src, dst)
+
+    # 包工具
+    imgdir  = _find_imgtool_dir()
+    enctool = _enctool_path(imgdir)
+    cfg     = _load_security_cfg(imgdir)
+
+    def _rsip(infile, outfile, addr_hex):
+        return _run([enctool, "rsip", infile, outfile, addr_hex, cfg["RSIP_KEY"], cfg["RSIP_IV"]])
+
+    def _sboot(infile, outfile, mode):
+        keypair = os.path.join(imgdir, "key_pair.txt")
+        return _run([enctool, "sboot", infile, outfile, keypair, cfg["SBOOT_SEED"], str(mode)])
+
+    def _rdp(infile, outfile):
+        return _run([enctool, "rdp", infile, outfile, cfg["RDP_KEY"]])
+
+    # ---- 依檔名流程（只需要處理 image2；boot/image3 另外呼叫時也能用這一套）----
+    def _process_file(image_fullname):
+        image_filename = os.path.basename(image_fullname)
+        curr_path = os.path.dirname(image_fullname)
+        image_name_en = f"{os.path.splitext(image_fullname)[0]}-en{os.path.splitext(image_fullname)[1]}"
+        image_name_sb = f"{os.path.splitext(image_fullname)[0]}-sb{os.path.splitext(image_fullname)[1]}"
+
+        # km0/4 boot（供通用性）
+        if image_filename == "km0_boot_all.bin" and cfg["RSIP_ENABLE"] == "1":
+            _rsip(image_fullname, image_name_en, "0x08000000"); _mv(image_name_en, image_fullname)
+
+        if image_filename == "km4_boot_all.bin":
+            if cfg["SBOOT_ENABLE"] == "1":
+                _sboot(image_fullname, image_name_sb, 1); _mv(image_name_sb, image_fullname)
+            if cfg["RSIP_ENABLE"] == "1":
+                _rsip(image_fullname, image_name_en, "0x08004000"); _mv(image_name_en, image_fullname)
+
+        # image3（供通用性；原腳本是產生 -en 檔，原檔不覆蓋）
+        if image_filename in ("km4_image3_all.bin", "km4_image3_psram.bin") and cfg["RDP_ENABLE"] == "1":
+            _rdp(image_fullname, image_name_en)
+
+        # psram_2_prepend（供通用性）
+        if image_filename == "psram_2_prepend.bin" and cfg["SIMG2_ENABLE"] == "1":
+            _sboot(image_fullname, image_name_sb, 0); _cp(image_name_sb, image_fullname)
+
+        # === km4_image2_all.bin 主流程 ===
+        if image_filename == "km4_image2_all.bin":
+            # sboot(2) + pad
+            if cfg["SIMG2_ENABLE"] == "1":
+                _sboot(image_fullname, image_name_sb, 2); _cp(image_name_sb, image_fullname)
+                _pad_to_4k(image_fullname)
+
+            # rsip（會產出 -en）
+            km4_for_merge = image_fullname
+            if cfg["RSIP_ENABLE"] == "1":
+                _rsip(image_fullname, image_name_en, "0x0e000000")
+                km4_for_merge = image_name_en
+
+            # 需要 km0 才能合併
+            if not os.path.exists(os.path.join(copy_path, "km0_image2_all.bin")):
+                print(">>> km0_image2_all.bin not found; skip merge")
+                return 0
+
+            km0_src = os.path.join(copy_path, "km0_image2_all.bin")
+            km0_for_merge = km0_src
+            if cfg["RSIP_ENABLE"] == "1":
+                km0_en = os.path.join(copy_path, "km0_image2_all-en.bin")
+                _rsip(km0_src, km0_en, "0x0c000000")
+                km0_for_merge = km0_en
+
+            # 合併順序（與腳本一致）：KM0 在前，KM4 在後 → 先 tmp，再視 RDP/image3 決定是否再併
+            tmp = os.path.join(curr_path, "km0_km4_image2_tmp.bin")
+            final = os.path.join(curr_path, "km0_km4_image2.bin")
+            _concat_bins(tmp, km0_for_merge, km4_for_merge)
+
+            # 若 RDP_ENABLE=1 且有 image3 的 -en，依 BUILD_TYPE 併入
+            if cfg["RDP_ENABLE"] == "1":
+                img3_all_en   = os.path.join(curr_path, "km4_image3_all-en.bin")
+                img3_psram_en = os.path.join(curr_path, "km4_image3_psram-en.bin")
+                img3_all_raw  = os.path.join(curr_path, "km4_image3_all.bin")
+                img3_psram_raw= os.path.join(curr_path, "km4_image3_psram.bin")
+
+                if os.path.exists(img3_all_en):
+                    if build_type == "MFG":
+                        _concat_bins(final, tmp, img3_all_raw, img3_psram_raw)
+                    else:
+                        _concat_bins(final, tmp, img3_all_en, img3_psram_en)
+                    try: os.remove(tmp)
+                    except OSError: pass
+                else:
+                    _mv(tmp, final)
+            else:
+                _mv(tmp, final)
+
+            # 複製到 copy_path（與腳本一致）
+            _cp(final, os.path.join(copy_path, "km0_km4_image2.bin"))
+            return 0
+
+        # === km0_image2_all.bin 對稱流程（腳本也支援）===
+        if image_filename == "km0_image2_all.bin":
+            km0_for_merge = image_fullname
+            if cfg["RSIP_ENABLE"] == "1":
+                _rsip(image_fullname, image_name_en, "0x0c000000")
+                km0_for_merge = image_name_en
+
+            if not os.path.exists(os.path.join(copy_path, "km4_image2_all.bin")):
+                print(">>> km4_image2_all.bin not found; skip merge")
+                return 0
+
+            km4_src = os.path.join(copy_path, "km4_image2_all.bin")
+            km4_for_merge = km4_src
+            if cfg["RSIP_ENABLE"] == "1":
+                km4_en = os.path.join(copy_path, "km4_image2_all-en.bin")
+                _rsip(km4_src, km4_en, "0x0e000000")
+                km4_for_merge = km4_en
+
+            tmp   = os.path.join(curr_path, "km0_km4_image2_tmp.bin")
+            final = os.path.join(curr_path, "km0_km4_image2.bin")
+            _concat_bins(tmp, km0_for_merge, km4_for_merge)
+
+            if cfg["RDP_ENABLE"] == "1":
+                img3_all_en   = os.path.join(copy_path, "km4_image3_all-en.bin")
+                img3_psram_en = os.path.join(copy_path, "km4_image3_psram-en.bin")
+                if os.path.exists(img3_all_en):
+                    _concat_bins(final, tmp, img3_all_en, img3_psram_en)
+                    try: os.remove(tmp)
+                    except OSError: pass
+                else:
+                    _mv(tmp, final)
+            else:
+                _mv(tmp, final)
+
+            _cp(final, os.path.join(copy_path, "km0_km4_image2.bin"))
+            return 0
+
+        # 其他檔名：不處理
+        return 0
+
+    # 這個 action 會被綁在輸出 km0_km4_image2.bin 上；我們以「km4_image2_all.bin」為主執行一遍，
+    # 若不存在就嘗試 km0 分支，否則直接成功返回。
+    if os.path.exists(km4_all):
+        return _process_file(km4_all)
+    elif os.path.exists(km0_all):
+        return _process_file(km0_all)
+    else:
+        print(">>> Neither km4_image2_all.bin nor km0_image2_all.bin exists; nothing to do.")
+        return 0
+
+# 用 imagetool 產出最終包（會在 build_dir 生成 km0_km4_image2.bin）
+km0_km4_image2_bin = env.Command(
+    os.path.join(build_dir, "km0_km4_image2.bin"),
+    [km0_all_bin, km4_all_bin],
+    _imagetool_image2_action
+)
+Alias("buildprog", [km0_km4_image2_bin])  # 取代原本的人工 concat 版本
 
 # --- Upload --- 
 def upload_amebad(source, target, env): 
@@ -1048,45 +1367,6 @@ def upload_amebad(source, target, env):
     _run(f"\"{tool_exe}\" {port} {km0} {km4}")
     print(">>> Upload done!") 
 
-def merge_km0_km4_image2():
-    """
-    依 Realtek Makefile 規則合併：
-    km4_image2_all.bin (xip->ram->psram, 已 prepend+pad) +
-    km0_image2_all.bin (xip->ram, 已 prepend+pad)
-    -> km0_km4_image2.bin
-    """
-    print(">>> Merging KM0+KM4 image2 ...")
-    image_out = build_dir
-    km4_all = os.path.join(image_out, "km4_image2_all.bin")
-    km0_all = os.path.join(image_out, "km0_image2_all.bin")
-    out_bin = os.path.join(image_out, "km0_km4_image2.bin")
-
-    if not os.path.exists(km4_all):
-        raise FileNotFoundError("km4_image2_all.bin not found")
-    if not os.path.exists(km0_all):
-        raise FileNotFoundError("km0_image2_all.bin not found")
-
-    # 注意順序：KM4 在前，KM0 在後（對齊後再併）
-    _concat_bins(out_bin, km4_all, km0_all)
-    _pad_to_4k(out_bin)
-
-    print(">>> Merged:", out_bin)
-    return out_bin
-
-def _merge_km0_km4_image2_action(target, source, env):
-    merge_km0_km4_image2()
-    return 0
-
-# 讓 SCons 以現有兩顆 all.bin 為輸入做出合併檔
-km0_km4_image2_bin = env.Command(
-    os.path.join(build_dir, "km0_km4_image2.bin"),
-    [km0_all_bin, km4_all_bin],
-    _merge_km0_km4_image2_action
-)
-
-# 想要一鍵一起生出來：把它掛到 buildprog
-Alias("buildprog", [km0_km4_image2_bin])
-
 # 🚩 Upload target (只負責上傳，不會在 build 時觸發)
-upload_target = env.Alias("upload", None, upload_amebad)
+upload_target = env.Alias("upload", km0_km4_image2_bin, upload_amebad)
 AlwaysBuild(upload_target) # 確保 pio run -t upload 會跑
