@@ -207,6 +207,7 @@ int main(void)
 	if (ps_config.km0_osc2m_close == FALSE) {
 		app_loguart_lowpower();
 	}
+	shell_init_ram();
 
 	app_pmu_init();
 	/*switch shell control to KM4 */

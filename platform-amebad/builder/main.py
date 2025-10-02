@@ -884,6 +884,7 @@ def postprocess_km0_boot():
         "-j", ".ram_image1.text",
         "-j", ".ram_image1.data",
         "-j", ".ram_image1.rodata",
+        "-j", ".xip_image1.bss",
         "-Obinary", pure_axf, ram1_bin])
 
     # KM0 XIP Boot
@@ -891,6 +892,7 @@ def postprocess_km0_boot():
         "-j", ".xip_image1.text",
         "-j", ".xip_image1.data",
         "-j", ".xip_image1.rodata",
+        "-j", ".xip_image1.bss",
         "-j", ".rodata.str1.1",
         "-Obinary", pure_axf, xip1_bin])
 
@@ -955,6 +957,7 @@ def postprocess_km0_image2():
           "-j", ".ram_image2.text",
           "-j", ".ram_image2.data",
           "-j", ".ram_image2.rodata",
+          "-j", ".ram_image2.bss",
           "-Obinary", pure_axf, ram2_bin])
 
     _run([objcopy, "-j", ".xip_image2.text", "-Obinary", pure_axf, xip2_bin], strict=False)
@@ -1001,7 +1004,8 @@ def postprocess_km4_boot():
           "-j", ".ram_image1.entry",
           "-j", ".ram_image1.text",
           "-j", ".ram_image1.data",
-        "-j", ".ram_image1.rodata",
+          "-j", ".ram_image1.rodata",
+          "-j", ".ram_image1.bss",
           "-Obinary", pure_axf, ram1_bin])
 
     # XIP
@@ -1009,6 +1013,7 @@ def postprocess_km4_boot():
           "-j", ".xip_image1.text",
           "-j", ".xip_image1.data",
           "-j", ".xip_image1.rodata",
+          "-j", ".xip_image1.bss",
           "-j", ".rodata.str1.1",
           "-Obinary", pure_axf, xip1_bin], strict=False)
 
@@ -1059,6 +1064,7 @@ def postprocess_km4_image2_ns():
           "-j", ".ram_image2.text",
           "-j", ".ram_image2.data",
           "-j", ".ram_image2.rodata",
+          "-j", ".ram_image2.bss",
           "-Obinary", pure_axf, ram2_bin])
 
     # XIP
@@ -1066,6 +1072,7 @@ def postprocess_km4_image2_ns():
           "-j", ".xip_image2.text",
           "-j", ".xip_image2.data",
           "-j", ".xip_image2.rodata",
+          "-j", ".xip_image2.bss",
           "-j", ".rodata.str1.1",
           "-Obinary", pure_axf, xip2_bin], strict=False)
 
@@ -1074,6 +1081,7 @@ def postprocess_km4_image2_ns():
           "-j", ".psram_image2.text",
           "-j", ".psram_image2.data",
           "-j", ".psram_image2.rodata",
+          "-j", ".psram_image2.bss",
           "-Obinary", pure_axf, psram_bin], strict=False)
 
     ram2_pre  = os.path.join(image_out, "ram_2_prepend.bin")
@@ -1126,6 +1134,8 @@ def postprocess_km4_image3_s():
     _run([objcopy,
           "-j", ".ram_image3.text",
           "-j", ".ram_image3.data",
+          "-j", ".ram_image3.rodata",
+          "-j", ".ram_image3.bss",
           "-Obinary", pure_axf, ram3s_bin])
 
     # Non-secure callable stubs
@@ -1137,6 +1147,8 @@ def postprocess_km4_image3_s():
     _run([objcopy,
           "-j", ".psram_image3.text",
           "-j", ".psram_image3.data",
+          "-j", ".psram_image3.rodata",
+          "-j", ".psram_image3.bss",
           "-Obinary", pure_axf, psram3s_bin], strict=False)
 
     ram3s_pre   = os.path.join(image_out, "ram_3_s_prepend.bin")
