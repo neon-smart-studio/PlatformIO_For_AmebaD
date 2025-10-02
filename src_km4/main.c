@@ -150,9 +150,6 @@ int main(void)
 #endif
 
 	/* init console */
-	shell_recv_all_data_onetime = 1;
-	shell_init_rom(0, 0);	
-	shell_init_ram();
 	ipc_table_init();
 
 	/* Register Log Uart Callback function */
