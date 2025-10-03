@@ -1067,7 +1067,7 @@ def postprocess_km4_boot():
     xip1_pre = os.path.join(image_out, "km4_xip_boot_prepend.bin")
     _prepend_header(
         ram1_bin, map_path,
-        ["__ram_start_table_start__"],
+        ["__ram_image1_text_start__"],
         ram1_pre, "BOOT",
         section_hints=[".ram_image1.entry"]  # 找不到符號就用 section
     )
@@ -1132,8 +1132,6 @@ def postprocess_km4_image2_ns():
           "-j", ".xip_image2.text",
           "-j", ".xip_image2.data",
           "-j", ".xip_image2.rodata",
-          "-j", ".xip_image2.bss",
-          "-j", ".rodata.str1.1",
           "-Obinary", pure_axf, xip2_bin], strict=False)
 
     # PSRAM
