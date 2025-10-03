@@ -13,12 +13,22 @@ env = DefaultEnvironment() # SDK 與 Toolchain 路徑
 
 sdk_dir = os.path.join(env.subst("$PROJECT_DIR"), ".pio", "framework-amebad-rtos-d")
 
+arduino_dir = os.path.join(env.subst("$PROJECT_DIR"), ".pio", "framework-arduinoamebad")
+
 if not os.path.exists(sdk_dir):
     print(">>> Cloning AmebaD SDK ...")
     subprocess.check_call([
         "git", "clone", "--depth=1",
         "https://github.com/Ameba-AIoT/ameba-rtos-d.git",
         sdk_dir
+    ])
+
+if not os.path.exists(arduino_dir):
+    print(">>> Cloning AmebaD Arduino ...")
+    subprocess.check_call([
+        "git", "clone", "--depth=1",
+        "https://github.com/Ameba-AIoT/ameba-arduino-d.git",
+        arduino_dir
     ])
 
 # 讀取開關：platformio.ini 可設 build_flags = -DTRUSTZONE=1
@@ -1547,15 +1557,33 @@ else:
 Alias("buildprog", [km0_km4_image2_bin])  # 取代原本的人工 concat 版本
 
 # --- Upload --- 
-def upload_amebad(source, target, env): 
+def upload_amebad(source, target, env):
     print(">>> Uploading AmebaD image ...")
-    # 讀取 platformio.ini 設定 
     port = env.GetProjectOption("upload_port")
-    km0 = os.path.join(build_dir, "km0_image2_all.bin")
-    km4 = os.path.join(build_dir, "km4_image2_all.bin")
-    tool_exe = os.path.join(sdk_dir, "tools", "DownloadServer", "DownloadServer.exe")
-    _run(f"\"{tool_exe}\" {port} {km0} {km4}")
-    print(">>> Upload done!") 
+
+    # Arduino core tools 來源路徑
+    if os.name == "nt":
+        tool_dir_src = os.path.join(arduino_dir, "Arduino_package", "ameba_d_tools_windows")
+        upload_tool = os.path.join(tool_dir_src, "upload_image_tool_windows.exe")
+        flashloader_src = os.path.join(tool_dir_src, "tools", "windows", "image_tool", "imgtool_flashloader_amebad.bin")
+    else:
+        tool_dir_src = os.path.join(arduino_dir, "Arduino_package", "ameba_d_tools_linux")
+        upload_tool = os.path.join(tool_dir_src, "upload_image_tool_linux")
+        flashloader_src = os.path.join(tool_dir_src, "tools", "linux", "image_tool", "imgtool_flashloader_amebad.bin")
+
+    # Build 輸出目錄
+    tool_dir = build_dir   # 改成 build_dir
+
+    # 複製 flashloader
+    flashloader_dst = os.path.join(tool_dir, "imgtool_flashloader_amebad.bin")
+    if not os.path.exists(flashloader_dst):
+        shutil.copy(flashloader_src, flashloader_dst)
+        print(f">>> Copied flashloader to {flashloader_dst}")
+
+    # 執行 upload
+    cmd = f"\"{upload_tool}\" \"{tool_dir}\" {port} RTL8720DN 1 1 1500000 -v"
+    _run(cmd)
+    print(">>> Upload done!")
 
 # 🚩 Upload target (只負責上傳，不會在 build 時觸發)
 upload_target = env.Alias("upload", km0_km4_image2_bin, upload_amebad)
