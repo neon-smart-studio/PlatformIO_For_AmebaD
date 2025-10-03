@@ -663,7 +663,7 @@ boot_km4_elf = env_km4.Program(
     LINKFLAGS=[
         "-mcpu=cortex-m33", "-mthumb", "-mcmse", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard",
         "-L" + asdk_km4_dir,
-        "-T" + os.path.join(asdk_km4_dir, "ld/secureboot/rlx8721d_img1_s_sboot.ld"),
+        "-T" + os.path.join(asdk_km4_dir, "ld/rlx8721d_img1_s.ld"),
         "-T" + os.path.join(asdk_km4_dir, "ld/rlx8721d_rom_symbol_acut_boot.ld"),
         "-Wl,--gc-sections", "-Wl,--warn-section-align",
         "-Wl,-Map=" + os.path.join(build_dir, "km4_boot.map"),
@@ -794,8 +794,7 @@ def _find_section_addr_from_map(map_path: str, *sections: str):
     return None
 
 # 2) 修改：支援 BOOT/IMG2，且可帶 fallback_addr 與 section_hints
-def _prepend_header(in_bin, map_path, symbols, out_bin, kind,
-                    fallback_addr=None, section_hints=None, align=None):
+def _prepend_header(in_bin, map_path, symbols, out_bin, kind, section_hints=None, align=None):
     # 先用符號找
     addr = None
     try:
@@ -806,10 +805,9 @@ def _prepend_header(in_bin, map_path, symbols, out_bin, kind,
     if addr is None and section_hints:
         addr = _find_section_addr_from_map(map_path, *section_hints)
     # 還是找不到就用 fallback
-    if addr is None and fallback_addr is not None:
-        addr = fallback_addr
     if addr is None:
         raise RuntimeError(f"cannot determine load address for {kind} header: {in_bin}")
+    print(f"  - {kind} load address: 0x{addr:08X}")
 
     size = os.path.getsize(in_bin)
     pad = 0
@@ -907,7 +905,7 @@ def postprocess_km0_boot():
         "-j", ".ram_image1.text",
         "-j", ".ram_image1.data",
         "-j", ".ram_image1.rodata",
-        "-j", ".xip_image1.bss",
+        "-j", ".ram_image1.bss",
         "-Obinary", pure_axf, ram1_bin])
 
     # KM0 XIP Boot
@@ -920,11 +918,11 @@ def postprocess_km0_boot():
         "-Obinary", pure_axf, xip1_bin])
 
     # prepend header（符號同原 Makefile）
-    ram1_pre = os.path.join(image_out, "ram_1_prepend.bin")
-    xip1_pre = os.path.join(image_out, "xip_boot_prepend.bin")
+    ram1_pre = os.path.join(image_out, "km0_ram_1_prepend.bin")
+    xip1_pre = os.path.join(image_out, "km0_xip_boot_prepend.bin")
     _prepend_header(
         ram1_bin, map_path,
-        ["__ram_start_table_start__", "ram_start_table_start__"],
+        ["__ram_start_table_start__"],
         ram1_pre, "BOOT",
         section_hints=[".ram_image1.entry"]  # 找不到符號就用 section
     )
@@ -932,9 +930,8 @@ def postprocess_km0_boot():
     # KM0 BOOT：XIP（關鍵！fallback 指到 0x08000020）
     _prepend_header(
         xip1_bin, map_path,
-        ["__flash_boot_text_start__", "flash_boot_text_start__"],
+        ["__flash_boot_text_start__"],
         xip1_pre, "BOOT",
-        fallback_addr=0x08000020,
         section_hints=[".xip_image1.text"],
         align=32,                     # ★ 這行
     )
@@ -975,6 +972,7 @@ def postprocess_km0_image2():
 
     _run([strip, "-o", pure_axf, elf])
 
+    # RAM
     _run([objcopy,
           "-j", ".ram_image2.entry",
           "-j", ".ram_image2.text",
@@ -983,24 +981,52 @@ def postprocess_km0_image2():
           "-j", ".ram_image2.bss",
           "-Obinary", pure_axf, ram2_bin])
 
-    _run([objcopy, "-j", ".xip_image2.text", "-Obinary", pure_axf, xip2_bin], strict=False)
-    _run([objcopy, "-j", ".ram_retention.text", "-j", ".ram_retention.entry", "-Obinary", pure_axf, ret_bin], strict=False)
+    # XIP
+    _run([objcopy,
+          "-j", ".xip_image2.text",
+          "-j", ".xip_image2.data",
+          "-j", ".xip_image2.rodata",
+          "-Obinary", pure_axf, xip2_bin], strict=False)
+
+    # Retention
+    _run([objcopy,
+          "-j", ".ram_retention.entry",
+          "-j", ".ram_retention.text",
+          "-j", ".ram_retention.data",
+          "-j", ".ram_retention.rodata",
+          "-Obinary", pure_axf, ret_bin], strict=False)
+
+    # prepend
+    parts = []
 
     ram2_pre = os.path.join(image_out, "km0_ram_2_prepend.bin")
     _prepend_header(ram2_bin, map_path,
                     ["__ram_image2_entry_func__", "__image2_entry_func__"],
                     ram2_pre, "IMG2")
+    parts.append(ram2_pre)
 
-    xip2_pre = None
     if os.path.exists(xip2_bin) and os.path.getsize(xip2_bin) > 0:
         xip2_pre = os.path.join(image_out, "km0_xip_image2_prepend.bin")
         _prepend_header(xip2_bin, map_path,
-                        ["__flash_text_start__", "flash_text_start__"],
+                        ["__flash_text_start__"],
                         xip2_pre, "IMG2",
                         section_hints=[".xip_image2.text"])
+        parts.insert(0, xip2_pre)  # XIP 在前
+
+    if os.path.exists(ret_bin) and os.path.getsize(ret_bin) > 0:
+        try:
+            ret_pre = os.path.join(image_out, "km0_ram_retention_prepend.bin")
+            _prepend_header(ret_bin, map_path,
+                            ["__retention_entry_start__"],
+                            ret_pre, "IMG2")
+            parts.append(ret_pre)
+        except RuntimeError as e:
+            print(">>> skip KM0 retention (symbol not found):", e)
+    else:
+        print(">>> skip KM0 retention (not used)")
 
     km0_all = os.path.join(image_out, "km0_image2_all.bin")
-    _concat_bins(km0_all, xip2_pre, ram2_pre)
+    _concat_bins(km0_all, *parts)
     _pad_to_4k(km0_all)
 
     print(">>> KM0 image2 done:", km0_all)
@@ -1008,62 +1034,73 @@ def postprocess_km0_image2():
 
 def postprocess_km4_boot():
     print(">>> Post-processing KM4 boot ...")
-
-    elf = os.path.join(build_dir, "boot_km4.elf")
+    elf      = os.path.join(build_dir, "boot_km4.elf")
     if not os.path.exists(elf):
         raise FileNotFoundError("boot_km4.elf not found")
 
     image_out = build_dir
     map_path  = os.path.join(image_out, "km4_boot.map")
-    pure_axf  = os.path.join(image_out, "target_pure_boot_km4.axf")
-
-    ram1_bin  = os.path.join(image_out, "km4_ram_1.bin")
-    xip1_bin  = os.path.join(image_out, "km4_xip_boot.bin")
+    pure_axf  = os.path.join(image_out, "target_pure_loader.axf")
+    ram1_bin  = os.path.join(image_out, "ram_1.bin")
+    xip1_bin  = os.path.join(image_out, "xip_boot.bin")
 
     _run([strip, "-o", pure_axf, elf])
-
-    # RAM
+    
+    # KM4 RAM Boot
     _run([objcopy,
-          "-j", ".ram_image1.entry",
-          "-j", ".ram_image1.text",
-          "-j", ".ram_image1.data",
-          "-j", ".ram_image1.rodata",
-          "-j", ".ram_image1.bss",
-          "-Obinary", pure_axf, ram1_bin])
+        "-j", ".ram_image1.entry",
+        "-j", ".ram_image1.text",
+        "-j", ".ram_image1.data",
+        "-j", ".ram_image1.rodata",
+        "-j", ".rodata.str1.1",
+        "-Obinary", pure_axf, ram1_bin])
 
-    # XIP
+    # KM4 XIP Boot
     _run([objcopy,
-          "-j", ".xip_image1.text",
-          "-j", ".xip_image1.data",
-          "-j", ".xip_image1.rodata",
-          "-j", ".xip_image1.bss",
-          "-j", ".rodata.str1.1",
-          "-Obinary", pure_axf, xip1_bin], strict=False)
+        "-j", ".xip_image1.text",
+        "-j", ".xip_image1.data",
+        "-j", ".xip_image1.rodata",
+        "-Obinary", pure_axf, xip1_bin])
 
+    # prepend header（符號同原 Makefile）
     ram1_pre = os.path.join(image_out, "km4_ram_1_prepend.bin")
     xip1_pre = os.path.join(image_out, "km4_xip_boot_prepend.bin")
+    _prepend_header(
+        ram1_bin, map_path,
+        ["__ram_start_table_start__"],
+        ram1_pre, "BOOT",
+        section_hints=[".ram_image1.entry"]  # 找不到符號就用 section
+    )
 
-    _prepend_header(ram1_bin, map_path,
-                    ["__ram_start_table_start__", "ram_start_table_start__"],
-                    ram1_pre, "BOOT")
-
-    if os.path.exists(xip1_bin) and os.path.getsize(xip1_bin) > 0:
-        _prepend_header(xip1_bin, map_path,
-                        ["__flash_boot_text_start__", "flash_boot_text_start__"],
-                        xip1_pre, "BOOT")
-
+    # KM4 BOOT：XIP（關鍵！fallback 指到 0x08000020）
+    _prepend_header(
+        xip1_bin, map_path,
+        ["__flash_boot_text_start__"],
+        xip1_pre, "BOOT",
+        section_hints=[".xip_image1.text"],
+        align=32,                     # ★ 這行
+    )
+    # 合併 + 4KB 對齊
     km4_boot_all = os.path.join(image_out, "km4_boot_all.bin")
-    if os.path.exists(xip1_pre):
-        _concat_bins(km4_boot_all, xip1_pre, ram1_pre)
-    else:
-        _concat_bins(km4_boot_all, ram1_pre)
-
+    _concat_bins(km4_boot_all, xip1_pre, ram1_pre)
     _pad_to_4k(km4_boot_all)
+
+    # 建議：把這段抽成共用 _load_security_cfg(imgdir)（你在 _imagetool_image2_action 裡已寫過一次）
+    try:
+        imgdir  = os.path.join(asdk_km4_dir, "gnu_utility", "image_tool")
+        enctool = os.path.join(imgdir, "EncTool.exe" if os.name == "nt" else "EncTool")
+        if os.path.exists(enctool):
+            cfg = _load_security_cfg(imgdir)  # 共用的讀取 security_config.sh + env 的函式
+            if cfg["RSIP_ENABLE"] == "1":
+                img_en = os.path.join(image_out, "km4_boot_all-en.bin")
+                _run([enctool, "rsip", km4_boot_all, img_en, "0x08000000", cfg["RSIP_KEY"], cfg["RSIP_IV"]])
+                os.replace(img_en, km4_boot_all)
+    except Exception as e:
+        print(">>> imagetool step (KM4 boot) skipped:", e)
 
     print(">>> KM4 boot done:", km4_boot_all)
     return km4_boot_all
 
-# === KM4 image2 後處理 ===
 def postprocess_km4_image2_ns():
     print(">>> Post-processing KM4 image2_ns ...")
 
@@ -1108,25 +1145,34 @@ def postprocess_km4_image2_ns():
           "-Obinary", pure_axf, psram_bin], strict=False)
 
     ram2_pre  = os.path.join(image_out, "ram_2_prepend.bin")
-    xip2_pre  = os.path.join(image_out, "xip_image2_prepend.bin")
-    psram_pre = os.path.join(image_out, "psram_2_prepend.bin")
+    xip2_pre  = None
+    psram_pre = None
 
+    # RAM → 一定要有
     _prepend_header(ram2_bin,  map_path,
-                    ["__ram_image2_text_start__", "ram_image2_text_start__"],
+                    ["__ram_image2_text_start__"],
                     ram2_pre, "IMG2")
 
+    # XIP → 可能為空
     if os.path.exists(xip2_bin) and os.path.getsize(xip2_bin) > 0:
+        xip2_pre = os.path.join(image_out, "xip_image2_prepend.bin")
         _prepend_header(xip2_bin, map_path,
-                        ["__flash_text_start__", "flash_text_start__"],
-                        xip2_pre, "IMG2")
+                        ["__flash_text_start__"],
+                        xip2_pre, "IMG2",
+                        section_hints=[".xip_image2.text"])
+    else:
+        print(">>> skip KM4 XIP (empty)")
 
-    psram_pre = None
+    # PSRAM → 可能為空
     if os.path.exists(psram_bin) and os.path.getsize(psram_bin) > 0:
         psram_pre = os.path.join(image_out, "psram_2_prepend.bin")
         _prepend_header(psram_bin, map_path,
                         ["__psram_image2_text_start__", "psram_image2_text_start__"],
                         psram_pre, "IMG2")
+    else:
+        print(">>> skip KM4 PSRAM (empty)")
 
+    # 合併，順序：XIP → RAM → PSRAM
     km4_all = os.path.join(image_out, "km4_image2_all.bin")
     _concat_bins(km4_all, xip2_pre, ram2_pre, psram_pre)
     _pad_to_4k(km4_all)
@@ -1179,16 +1225,16 @@ def postprocess_km4_image3_s():
     psram3s_pre = os.path.join(image_out, "psram_3_s_prepend.bin")
 
     _prepend_header(ram3s_bin,   map_path,
-                    ["__ram_image3_text_start__", "ram_image3_text_start__"],
+                    ["__ram_image3_text_start__"],
                     ram3s_pre, "IMG3")
 
     _prepend_header(ram3nsc_bin, map_path,
-                    ["__ram_image3_nsc_start__", "ram_image3_nsc_start__"],
+                    ["__ram_image3_nsc_start__"],
                     ram3nsc_pre, "IMG3")
 
     if os.path.exists(psram3s_bin) and os.path.getsize(psram3s_bin) > 0:
         _prepend_header(psram3s_bin, map_path,
-                        ["__psram_image3_text_start__", "psram_image3_text_start__"],
+                        ["__psram_image3_text_start__"],
                         psram3s_pre, "IMG3")
 
     km4_img3_all   = os.path.join(image_out, "km4_image3_all.bin")
@@ -1247,7 +1293,6 @@ def _imagetool_image2_action(target, source, env):
     def _find_imgtool_dir():
         candidates = [
             os.path.join(asdk_km4_dir, "gnu_utility", "image_tool"),
-            os.path.join(sdk_dir,       "utility",    "image_tool"),
         ]
         for d in candidates:
             if os.path.isdir(d):

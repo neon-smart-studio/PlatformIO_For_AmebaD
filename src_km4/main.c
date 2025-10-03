@@ -148,7 +148,7 @@ int main(void)
 #ifdef CONFIG_MBED_TLS_ENABLED
 	app_mbedtls_rom_init();
 #endif
-
+ 
 	/* init console */
 	ipc_table_init();
 
