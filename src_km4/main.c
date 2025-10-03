@@ -5,21 +5,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-void vApplicationIdleHook(void) {
-    // Optional: 可以留空
-}
-
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
-    // 報錯處理，可加上斷言或死循環
-    for(;;);
-}
-
-void vApplicationMallocFailedHook(void) {
-    /* 這裡可以放你想做的事情，例如 log、assert 或重啟 */
-    taskDISABLE_INTERRUPTS();
-    for (;;);  // 進入死迴圈，方便 debug
-}
-
 #if defined(CONFIG_FTL_ENABLED)
 #include "ftl_int.h"
 extern const u8 ftl_phy_page_num;

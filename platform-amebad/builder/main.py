@@ -221,26 +221,6 @@ km4_src = [
 
     #os.path.join(sdk_dir, "component/soc/realtek/amebad/misc/rtl8721d_ota.c"),
 
-    os.path.join(sdk_dir, "component/os/freertos/cmsis_os.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_backtrace_ext.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_heap5_config.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_service.c"),
-
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/list.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/queue.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/tasks.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/timers.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/croutine.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/event_groups.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/stream_buffer.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/MemMang/heap_5.c"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/ARM_CM4F/port.c"),
-
-    os.path.join(sdk_dir, "component/os/os_dep/device_lock.c"),
-    os.path.join(sdk_dir, "component/os/os_dep/osdep_service.c"),
-    os.path.join(sdk_dir, "component/os/os_dep/psram_reserve.c"),
-    os.path.join(sdk_dir, "component/os/os_dep/tcm_heap.c"),
-
     os.path.join(sdk_dir, "component/common/api/wifi_interactive_mode.c"),
     os.path.join(sdk_dir, "component/common/api/lwip_netconf.c"),
     
@@ -469,7 +449,39 @@ km4_src = [
     os.path.join(sdk_dir, f"component/common/network/ssl/mbedtls-{MBEDTLS_VERSION}/library/x509write_crt.c"),
     os.path.join(sdk_dir, f"component/common/network/ssl/mbedtls-{MBEDTLS_VERSION}/library/x509write_csr.c"),
     os.path.join(sdk_dir, f"component/common/network/ssl/mbedtls-{MBEDTLS_VERSION}/library/xtea.c"),
-] 
+    
+    os.path.join(sdk_dir, "component/os/os_dep/device_lock.c"),
+    os.path.join(sdk_dir, "component/os/os_dep/osdep_service.c"),
+    os.path.join(sdk_dir, "component/os/os_dep/psram_reserve.c"),
+    os.path.join(sdk_dir, "component/os/os_dep/tcm_heap.c"),
+
+    os.path.join(sdk_dir, "component/os/freertos/cmsis_os.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_backtrace_ext.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_heap5_config.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_service.c"),
+
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/list.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/queue.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/tasks.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/timers.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/croutine.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/event_groups.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/stream_buffer.c"),
+    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/MemMang/heap_5.c"),
+]
+
+if USE_TZ:
+    km4_src += [
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/secure/secure_context_port.c"),
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/secure/secure_context.c"),
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/secure/secure_heap.c"),
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/secure/secure_init.c"),
+    ]
+else:
+    km4_src += [
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/non_secure/port.c"),
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/non_secure/portasm.c"),
+    ]
 
 km4_inc = [
     os.path.join(sdk_dir, "component/common/api"),
@@ -526,8 +538,16 @@ km4_inc = [
     os.path.join(sdk_dir, "component/os/os_dep/include"),
     os.path.join(sdk_dir, "component/os/freertos"),
     os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/include"),
-    os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/ARM_CM4F"),
 ] 
+
+if USE_TZ:
+    km4_inc += [
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/secure"),
+    ]
+else:
+    km4_inc += [
+        os.path.join(sdk_dir, "component/os/freertos/freertos_v10.2.0/Source/portable/GCC/RTL8721D_HP/non_secure"),
+    ]
 
 # .a libraries (wifi_fw, pmc_lp, rom.a) 
 extra_libs_km0 = [ "_pmc_lp", "_wifi_fw" ]
@@ -938,7 +958,6 @@ def postprocess_km0_boot():
     # 合併 + 4KB 對齊
     km0_boot_all = os.path.join(image_out, "km0_boot_all.bin")
     _concat_bins(km0_boot_all, xip1_pre, ram1_pre)
-    _pad_to_4k(km0_boot_all)
 
     # 建議：把這段抽成共用 _load_security_cfg(imgdir)（你在 _imagetool_image2_action 裡已寫過一次）
     try:
@@ -1083,7 +1102,6 @@ def postprocess_km4_boot():
     # 合併 + 4KB 對齊
     km4_boot_all = os.path.join(image_out, "km4_boot_all.bin")
     _concat_bins(km4_boot_all, xip1_pre, ram1_pre)
-    _pad_to_4k(km4_boot_all)
 
     # 建議：把這段抽成共用 _load_security_cfg(imgdir)（你在 _imagetool_image2_action 裡已寫過一次）
     try:
@@ -1457,7 +1475,7 @@ def _imagetool_image2_action(target, source, env):
     else:
         print(">>> Neither km4_image2_all.bin nor km0_image2_all.bin exists; nothing to do.")
         return 0
-
+    
 # 用 imagetool 產出最終包（會在 build_dir 生成 km0_km4_image2.bin）
 km0_km4_image2_bin = env.Command(
     os.path.join(build_dir, "km0_km4_image2.bin"),
