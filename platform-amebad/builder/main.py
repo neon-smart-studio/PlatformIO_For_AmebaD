@@ -609,8 +609,8 @@ if USE_TZ:
     ]
 
 # .a libraries (wifi_fw, pmc_lp, rom.a) 
-extra_libs_km0 = [ "_pmc_lp", "_wifi_fw" ]
-extra_libs_km4 = [ "_pmc_hp", "_wlan", "_wlan_lp", "_wlan_lt", "_wlan_mp", "_wps", "_eap" ] 
+extra_libs_km0 = [ "_pmc_lp", "_wifi_fw", "m" ]
+extra_libs_km4 = [ "_pmc_hp", "_wlan", "_wlan_lp", "_wlan_lt", "_wlan_mp", "_wps", "_eap", "m" ] 
 
 def norm_unix(path):
     return path.replace("\\", "/")
