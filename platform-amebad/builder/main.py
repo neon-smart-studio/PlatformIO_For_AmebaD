@@ -157,7 +157,7 @@ km0_src = [
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/pwmout_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/rtc_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/sleep.c"),
-    #os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/sys_api.c"),
+    os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/sys_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/timer_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/us_ticker_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/us_ticker.c"),
@@ -345,7 +345,7 @@ km4_src = [
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/sleep.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/spdio_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/spi_api.c"),
-    #os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/sys_api.c"),
+    os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/sys_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/timer_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/us_ticker_api.c"),
     os.path.join(sdk_dir, "component/common/mbed/targets/hal/rtl8721d/us_ticker.c"),
@@ -673,6 +673,7 @@ env_km0.Append(CCFLAGS=[
     "-Os", "-fno-common", "-fmessage-length=0",
     "-Wall", "-Wpointer-arith", "-Wstrict-prototypes",
     "-Wundef", "-Wno-unused-function", "-Wno-unused-variable",
+    "-ffunction-sections","-fdata-sections",
     "-Wno-int-conversion",
     "-Wno-implicit-function-declaration",
     "-Wno-incompatible-pointer-types"
@@ -730,6 +731,7 @@ env_km4.Append(CCFLAGS=[
     "-Os", "-fno-common", "-fmessage-length=0",
     "-Wall", "-Wpointer-arith", "-Wstrict-prototypes",
     "-Wundef", "-Wno-unused-function", "-Wno-unused-variable",
+    "-ffunction-sections","-fdata-sections",
     "-Wno-int-conversion",
     "-Wno-implicit-function-declaration",
     "-Wno-incompatible-pointer-types"
