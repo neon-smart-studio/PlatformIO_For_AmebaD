@@ -578,11 +578,11 @@ def collect_sources(root, exts=(".c", ".cpp")):
         files.extend(glob.glob(os.path.join(root, "**", "*" + ext), recursive=True))
     return files
 
-def _mk_objs(envx, srcs, obj_root): 
+def _mk_objs(envx, srcs, suffix, obj_root): 
     objs = [] 
     for s in srcs: 
         rel = os.path.relpath(s, sdk_dir).replace("\\", "/") 
-        obj = os.path.join(obj_root, rel) + ".o"
+        obj = os.path.join(obj_root, rel) + suffix + ".o"
         os.makedirs(os.path.dirname(obj), exist_ok=True)
         objs.append(envx.Object(target=obj, source=s)) 
     return objs
@@ -630,7 +630,8 @@ env_km0.Append(CCFLAGS=[
     "-Os", "-fno-common", "-fmessage-length=0",
     "-Wall", "-Wpointer-arith", "-Wstrict-prototypes",
     "-Wundef", "-Wno-unused-function", "-Wno-unused-variable",
-    "-Wno-int-conversion"
+    "-Wno-int-conversion",
+    "-Wno-incompatible-pointer-types"
 ])
 env_km0.Append(CPPPATH=[proj_include])
 env_km0.Append(CPPPATH=[proj_include_km0])
@@ -640,7 +641,7 @@ env_km0.Append(CCFLAGS=[
     "-Wno-attributes"
 ])
 env_km0.Append(CPPPATH=km0_inc, CPPDEFINES=env.get("CPPDEFINES", []))
-boot_km0_objs = _mk_objs(env_km0, boot_km0_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/boot_km0/obj"))
+boot_km0_objs = _mk_objs(env_km0, boot_km0_src, ".KM0", os.path.join(env.subst("$BUILD_DIR"), "amebad/boot_km0/obj"))
 boot_km0_elf = env_km0.Program(
     target=os.path.join(env.subst("$BUILD_DIR"), "amebad/boot_km0.elf"),
     source=boot_km0_objs,
@@ -653,11 +654,11 @@ boot_km0_elf = env_km0.Program(
         "-Wl,-Map=" + os.path.join(build_dir, "km0_boot.map"),
     ]
 )
-km0_objs = _mk_objs(env_km0, km0_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km0/obj"))
+km0_objs = _mk_objs(env_km0, km0_src, ".KM0", os.path.join(env.subst("$BUILD_DIR"), "amebad/km0/obj"))
 km0_proj_src = collect_sources(project_km0_dir)
-km0_proj_objs = _mk_objs(env_km0, km0_proj_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km0/obj"))
+km0_proj_objs = _mk_objs(env_km0, km0_proj_src, ".KM0", os.path.join(env.subst("$BUILD_DIR"), "amebad/km0/obj"))
 km0_src_common_src = collect_sources(src_common_dir)
-km0_src_common_objs = _mk_objs(env_km0, km0_src_common_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km0/obj"))
+km0_src_common_objs = _mk_objs(env_km0, km0_src_common_src, ".KM0", os.path.join(env.subst("$BUILD_DIR"), "amebad/km0/obj"))
 km0_elf = env_km0.Program(
     target=os.path.join(env.subst("$BUILD_DIR"), "amebad/km0.elf"),
     source=km0_objs + km0_proj_objs + km0_src_common_objs,
@@ -694,7 +695,7 @@ env_km4.Append(CCFLAGS=[f"-DosThreadId_t=TaskHandle_t"])
 env_km4.Append(CPPPATH=[proj_include])
 env_km4.Append(CPPPATH=[proj_include_km4])
 env_km4.Append(CPPPATH=km4_inc, CPPDEFINES=env.get("CPPDEFINES", []))
-boot_km4_objs = _mk_objs(env_km4, boot_km4_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/boot_km4/obj"))
+boot_km4_objs = _mk_objs(env_km4, boot_km4_src, ".KM4", os.path.join(env.subst("$BUILD_DIR"), "amebad/boot_km4/obj"))
 boot_km4_elf = env_km4.Program(
     target=os.path.join(env.subst("$BUILD_DIR"), "amebad/boot_km4.elf"),
     source=boot_km4_objs,
@@ -707,11 +708,11 @@ boot_km4_elf = env_km4.Program(
         "-Wl,-Map=" + os.path.join(build_dir, "km4_boot.map"),
     ]
 )
-km4_objs = _mk_objs(env_km4, km4_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
+km4_objs = _mk_objs(env_km4, km4_src, ".KM4", os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
 km4_proj_src = collect_sources(project_km4_dir)
-km4_proj_objs = _mk_objs(env_km4, km4_proj_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
+km4_proj_objs = _mk_objs(env_km4, km4_proj_src, ".KM4", os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
 km4_src_common_src = collect_sources(src_common_dir)
-km4_src_common_objs = _mk_objs(env_km4, km4_src_common_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
+km4_src_common_objs = _mk_objs(env_km4, km4_src_common_src, ".KM4", os.path.join(env.subst("$BUILD_DIR"), "amebad/km4/obj"))
 if USE_TZ:
     km4_elf = env_km4.Program(
         target=os.path.join(env.subst("$BUILD_DIR"), "amebad/km4.elf"),
@@ -748,9 +749,9 @@ else:
     )
 
 if USE_TZ:
-    km4_img3_objs = _mk_objs(env_km4, km4_img3_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km4_img3/obj"))
+    km4_img3_objs = _mk_objs(env_km4, km4_img3_src, ".KM4", os.path.join(env.subst("$BUILD_DIR"), "amebad/km4_img3/obj"))
     km4_img3_src = collect_sources(os.path.join(project_km4_dir, "src_img3"))
-    km4_img3_proj_objs = _mk_objs(env_km4, km4_img3_src, os.path.join(env.subst("$BUILD_DIR"), "amebad/km4_img3/obj"))
+    km4_img3_proj_objs = _mk_objs(env_km4, km4_img3_src, ".KM4", os.path.join(env.subst("$BUILD_DIR"), "amebad/km4_img3/obj"))
     km4_img3_elf = env_km4.Program(
         target=os.path.join(env.subst("$BUILD_DIR"), "amebad/km4_img3.elf"),
         source=km4_img3_objs + km4_img3_proj_objs,
