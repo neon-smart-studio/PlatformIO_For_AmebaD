@@ -674,6 +674,7 @@ env_km0.Append(CCFLAGS=[
     "-Wall", "-Wpointer-arith", "-Wstrict-prototypes",
     "-Wundef", "-Wno-unused-function", "-Wno-unused-variable",
     "-Wno-int-conversion",
+    "-Wno-implicit-function-declaration",
     "-Wno-incompatible-pointer-types"
 ])
 env_km0.Append(CPPPATH=[include_dirs])
