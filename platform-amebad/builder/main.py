@@ -737,7 +737,7 @@ env_km4.Append(CCFLAGS=[
 compat_header = os.path.join(proj_include_km4, "compat_sys_types.h").replace("\\","/")
 env_km4.Append(CCFLAGS=["-include", compat_header])
 env_km4.Append(CCFLAGS=[f"-DosThreadId_t=TaskHandle_t"])
-env_km0.Append(CPPPATH=[include_dirs])
+env_km4.Append(CPPPATH=[include_dirs])
 env_km4.Append(CPPPATH=[proj_include])
 env_km4.Append(CPPPATH=[proj_include_km4])
 env_km4.Append(CPPPATH=km4_inc, CPPDEFINES=env.get("CPPDEFINES", []))
