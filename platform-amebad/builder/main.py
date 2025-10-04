@@ -37,6 +37,23 @@ USE_TZ = int(env.GetProjectOption("trustzone") or
              ("TRUSTZONE" in (env.get("CPPDEFINES") or []) and "1") or
              0)
 
+# 兼容多種格式
+flags = env.GetProjectOption("build_flags")
+if not flags:
+    flags = []
+elif isinstance(flags, str):
+    flags = [flags]
+
+include_dirs = []
+for f in flags:
+    f = f.strip()
+    if f.startswith("-I"):
+        # 移除 -I，轉成絕對路徑
+        path = f[2:]
+        if not os.path.isabs(path):
+            path = os.path.join(env.subst("$PROJECT_DIR"), path)
+        include_dirs.append(path)
+
 project_km0_dir = os.path.join(env.subst("$PROJECT_DIR"), "src_km0")
 project_km4_dir = os.path.join(env.subst("$PROJECT_DIR"), "src_km4")
 src_common_dir = os.path.join(env.subst("$PROJECT_DIR"), "src_common")
@@ -659,6 +676,7 @@ env_km0.Append(CCFLAGS=[
     "-Wno-int-conversion",
     "-Wno-incompatible-pointer-types"
 ])
+env_km0.Append(CPPPATH=[include_dirs])
 env_km0.Append(CPPPATH=[proj_include])
 env_km0.Append(CPPPATH=[proj_include_km0])
 env_km0.Append(CCFLAGS=[
@@ -718,6 +736,7 @@ env_km4.Append(CCFLAGS=[
 compat_header = os.path.join(proj_include_km4, "compat_sys_types.h").replace("\\","/")
 env_km4.Append(CCFLAGS=["-include", compat_header])
 env_km4.Append(CCFLAGS=[f"-DosThreadId_t=TaskHandle_t"])
+env_km0.Append(CPPPATH=[include_dirs])
 env_km4.Append(CPPPATH=[proj_include])
 env_km4.Append(CPPPATH=[proj_include_km4])
 env_km4.Append(CPPPATH=km4_inc, CPPDEFINES=env.get("CPPDEFINES", []))
