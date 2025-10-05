@@ -76,7 +76,7 @@ a lot of data that needs to be copied, this should be set high. */
 
 /* ---------- Pbuf options ---------- */
 /* PBUF_POOL_SIZE: the number of buffers in the pbuf pool. */
-#define PBUF_POOL_SIZE          96 
+#define PBUF_POOL_SIZE          128 
 //#define IP_REASS_MAXAGE		    1
 
 /* IP_REASS_MAX_PBUFS: Total maximum amount of pbufs waiting to be reassembled.*/
@@ -98,11 +98,11 @@ a lot of data that needs to be copied, this should be set high. */
 #define TCP_MSS                 (1500 - 40)	  /* TCP_MSS = (Ethernet MTU - IP header size - TCP header size) */
 
 /* TCP sender buffer space (bytes). */
-#define TCP_SND_BUF             (6*TCP_MSS)
+#define TCP_SND_BUF             (10*TCP_MSS)
 /*  TCP_SND_QUEUELEN: TCP sender buffer space (pbufs). This must be at least
   as much as (2 * TCP_SND_BUF/TCP_MSS) for things to work. */
 
-#define TCP_SND_QUEUELEN        (4* TCP_SND_BUF/TCP_MSS)
+#define TCP_SND_QUEUELEN        (6* TCP_SND_BUF/TCP_MSS)
 
 /* TCP receive window. */
 #define TCP_WND                 (8*TCP_MSS)
@@ -253,9 +253,9 @@ Certain platform allows computing and verifying the IP, UDP, TCP and ICMP checks
 */
 
 #define TCPIP_THREAD_STACKSIZE          2048
-#define TCPIP_MBOX_SIZE                 32
-#define DEFAULT_UDP_RECVMBOX_SIZE       32
-#define DEFAULT_TCP_RECVMBOX_SIZE       32
+#define TCPIP_MBOX_SIZE                 64
+#define DEFAULT_UDP_RECVMBOX_SIZE       64
+#define DEFAULT_TCP_RECVMBOX_SIZE       64
 #define DEFAULT_RAW_RECVMBOX_SIZE		16
 #define DEFAULT_ACCEPTMBOX_SIZE         32
 #define DEFAULT_THREAD_STACKSIZE        500
