@@ -31,6 +31,12 @@ if not os.path.exists(arduino_dir):
         arduino_dir
     ])
 
+sdk_lwipopts = os.path.join(sdk_dir, "component", "common", "api", "network", "include", "lwipopts.h")
+
+if os.path.exists(sdk_lwipopts):
+    print(f">>> Removing default lwipopts.h: {sdk_lwipopts}")
+    os.remove(sdk_lwipopts)
+
 # 讀取開關：platformio.ini 可設 build_flags = -DTRUSTZONE=1
 USE_TZ = int(env.GetProjectOption("trustzone") or
              os.environ.get("CONFIG_TRUSTZONE", "0") or
