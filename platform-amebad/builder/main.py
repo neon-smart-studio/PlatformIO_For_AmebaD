@@ -76,12 +76,6 @@ strip = os.path.join(toolchain, "bin", "arm-none-eabi-strip")
 objdump = os.path.join(toolchain, "bin", "arm-none-eabi-objdump")
 nm = os.path.join(toolchain, "bin", "arm-none-eabi-nm")
 
-utility_km0_dir = os.path.join(asdk_km0_dir, "gnu_utility")
-utility_km4_dir = os.path.join(asdk_km4_dir, "gnu_utility")
-
-checksum_exe_km0 = os.path.join(utility_km0_dir, "checksum.exe") 
-checksum_exe_km4 = os.path.join(utility_km4_dir, "checksum.exe") 
-
 # build 目錄 
 build_dir = os.path.join(env.subst("$BUILD_DIR"), "amebad")
 if not os.path.exists(build_dir): 
